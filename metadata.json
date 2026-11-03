@@ -1,0 +1,6 @@
+{
+  "name": "Courrier Studio - Éditeur Visuel d'Emails HTML",
+  "description": "Éditeur visuel professionnel d'emails HTML combinant manipulation graphique Canva, édition de code synchronisée, import multi-formats et export prêt pour l'envoi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
