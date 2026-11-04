@@ -12,7 +12,8 @@ import {
   FilePlus2,
   ArrowRightLeft,
   Cloud,
-  Send
+  Send,
+  ShieldCheck
 } from 'lucide-react';
 import { WorkspaceMode } from '../types/editor';
 
@@ -30,6 +31,7 @@ interface HeaderProps {
   onOpenKitModal: () => void;
   onOpenPeaceLoveConvert: () => void;
   onOpenCloudinary: () => void;
+  onOpenAdminSettings?: () => void;
   isSaved: boolean;
   documentTitle: string;
 }
@@ -48,6 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenKitModal,
   onOpenPeaceLoveConvert,
   onOpenCloudinary,
+  onOpenAdminSettings,
   isSaved,
   documentTitle,
 }) => {
@@ -217,6 +220,17 @@ export const Header: React.FC<HeaderProps> = ({
           <Download className="w-3.5 h-3.5" />
           <span>Exporter</span>
         </button>
+
+        {/* Admin Settings Button */}
+        {onOpenAdminSettings && (
+          <button
+            onClick={onOpenAdminSettings}
+            className="p-1.5 text-neutral-400 hover:text-indigo-400 hover:bg-neutral-800 rounded-lg transition-colors border border-neutral-800"
+            title="Paramètres de sécurité & profil Administrateur"
+          >
+            <ShieldCheck className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </header>
   );

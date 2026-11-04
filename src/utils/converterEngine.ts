@@ -613,3 +613,47 @@ export async function runOcrRecognition(
   }
 }
 
+/**
+ * Converts extracted OCR text into a beautiful, typographically rich email template
+ * with headings, stylized sections, callout boxes, and responsive 600px email table.
+ */
+export function formatOcrToEmailHtml(title: string, rawOcrText: string, previewImageDataUrl?: string): string {
+  const lines = rawOcrText.split('\n').map((l) => l.trim()).filter(Boolean);
+  let bodyContent = '';
+
+  if (previewImageDataUrl) {
+    bodyContent += `
+      <div style="text-align: center; margin-bottom: 24px;">
+        <img src="${previewImageDataUrl}" alt="Visuel Original Reconstruit" style="width: 100%; max-width: 540px; height: auto; border-radius: 8px; border: 1px solid #e2e8f0; display: block; margin: 0 auto;" />
+      </div>
+    `;
+  }
+
+  let inList = false;
+  lines.forEach((line) => {
+    const isHeader = line.length < 60 && (line === line.toUpperCase() || line.startsWith('---') || line.endsWith(':'));
+    const isBullet = line.startsWith('- ') || line.startsWith('* ') || line.startsWith('• ');
+
+    if (line.startsWith('---')) {
+      if (inList) { bodyContent += '</ul>'; inList = false; }
+      bodyContent += `<hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />`;
+    } else if (isHeader) {
+      if (inList) { bodyContent += '</ul>'; inList = false; }
+      bodyContent += `<h2 style="font-size: 18px; line-height: 26px; color: #0f172a; font-weight: bold; margin: 20px 0 8px 0; font-family: Arial, sans-serif;">${line.replace(/:$/, '')}</h2>`;
+    } else if (isBullet) {
+      if (!inList) {
+        bodyContent += `<ul style="margin: 12px 0 16px 20px; padding: 0; color: #334155; font-size: 14px; line-height: 22px;">`;
+        inList = true;
+      }
+      bodyContent += `<li style="margin-bottom: 6px;">${line.replace(/^[-*•]\s*/, '')}</li>`;
+    } else {
+      if (inList) { bodyContent += '</ul>'; inList = false; }
+      bodyContent += `<p style="font-size: 14px; line-height: 24px; color: #334155; margin: 0 0 14px 0; font-family: Arial, sans-serif;">${line}</p>`;
+    }
+  });
+
+  if (inList) bodyContent += '</ul>';
+
+  return wrapInEmailBoilerplate(title, bodyContent);
+}
+

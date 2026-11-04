@@ -17,6 +17,9 @@ import { TemplatesModal } from './components/modals/TemplatesModal';
 import { PeaceLoveConvertModal } from './components/modals/PeaceLoveConvertModal';
 import { KitExportModal } from './components/modals/KitExportModal';
 import { CloudinaryModal } from './components/modals/CloudinaryModal';
+import { AdminAuthModal } from './components/modals/AdminAuthModal';
+import { AdminSettingsModal } from './components/modals/AdminSettingsModal';
+import { CidoImageEditorModal } from './components/modals/CidoImageEditorModal';
 import { SAMPLE_TEMPLATES } from './data/sampleTemplates';
 import { sanitizeAndTagHtml, categorizeElement, generateElementId } from './utils/htmlSanitizer';
 import { auditEmailHtml, autoFixEmailCompatibility, AuditResult } from './utils/emailCompatibility';
@@ -50,6 +53,16 @@ export default function App() {
   const [isCloudinaryOpen, setIsCloudinaryOpen] = useState<boolean>(false);
   const [isConfirmNewProjectOpen, setIsConfirmNewProjectOpen] = useState<boolean>(false);
   const [isSaved, setIsSaved] = useState<boolean>(true);
+
+  // Admin authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('courrier_admin_auth') === 'true';
+  });
+  const [isAdminSettingsOpen, setIsAdminSettingsOpen] = useState<boolean>(false);
+
+  // CIDO Image Studio state
+  const [isCidoOpen, setIsCidoOpen] = useState<boolean>(false);
+  const [cidoTarget, setCidoTarget] = useState<{ elementId: string; imageSrc: string }>({ elementId: '', imageSrc: '' });
 
   // Aspect ratio lock state for images (proportions conservées vs libre)
   const [isAspectRatioLocked, setIsAspectRatioLocked] = useState<boolean>(true);
@@ -217,6 +230,14 @@ export default function App() {
         return `<hr data-cs-id="${newId}" style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />`;
       case 'spacer':
         return `<div data-cs-id="${newId}" style="height: 24px; line-height: 24px; font-size: 24px;">&nbsp;</div>`;
+      case 'download-pdf':
+        return `<table data-cs-id="${newId}" role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin: 16px auto;"><tr><td align="center" style="border-radius: 6px; background-color: #dc2626;"><a data-cs-id="${newId}-btn" href="#download-pdf" onclick="window.print();return false;" style="background-color: #dc2626; border: 1px solid #dc2626; font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; text-decoration: none; padding: 13px 26px; color: #ffffff; border-radius: 6px; display: inline-block;">📄 Télécharger le document en PDF &darr;</a></td></tr></table>`;
+      case 'layer-foreground':
+        return `<div data-cs-id="${newId}" data-cs-plan="premier_plan" style="position: relative; z-index: 10; margin: 16px auto; max-width: 560px; padding: 20px; background-color: #ffffff; border: 2px solid #4f46e5; border-radius: 8px; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);"><h3 style="margin: 0 0 8px 0; color: #1e1b4b; font-size: 16px; font-weight: bold; font-family: Arial, sans-serif;">Calque Premier Plan</h3><p style="margin: 0; color: #4338ca; font-size: 14px; line-height: 22px; font-family: Arial, sans-serif;">Contenu mis en avant au premier plan de l'email.</p></div>`;
+      case 'layer-midground':
+        return `<div data-cs-id="${newId}" data-cs-plan="plan_intermediaire" style="position: relative; z-index: 5; margin: 16px auto; max-width: 560px; padding: 18px; background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;"><h4 style="margin: 0 0 6px 0; color: #334155; font-size: 15px; font-family: Arial, sans-serif;">Calque Plan Intermédiaire</h4><p style="margin: 0; color: #64748b; font-size: 13px; line-height: 20px; font-family: Arial, sans-serif;">Contenu de transition entre le fond et le premier plan.</p></div>`;
+      case 'layer-background':
+        return `<div data-cs-id="${newId}" data-cs-plan="arriere_plan" style="position: relative; z-index: 1; margin: 16px auto; max-width: 560px; padding: 24px; background-color: #f1f5f9; border-radius: 8px;"><div style="color: #475569; font-size: 14px; line-height: 22px; font-family: Arial, sans-serif;">Calque Fond d'Arrière-Plan texturé pour structurer vos sections.</div></div>`;
       default:
         return '';
     }
@@ -583,6 +604,28 @@ export default function App() {
     setSelectedElement(null);
   };
 
+  // CIDO Image Studio actions
+  const handleOpenCido = (elementId: string, imageSrc: string) => {
+    setCidoTarget({ elementId, imageSrc });
+    setIsCidoOpen(true);
+  };
+
+  const handleApplyCidoImage = (elementId: string, newSrc: string) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(currentHtml, 'text/html');
+    const target = doc.querySelector(`[data-cs-id="${elementId}"]`);
+    if (target) {
+      if (target.tagName.toLowerCase() === 'img') {
+        target.setAttribute('src', newSrc);
+      } else {
+        const nestedImg = target.querySelector('img');
+        if (nestedImg) nestedImg.setAttribute('src', newSrc);
+      }
+      const updated = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+      updateHtml(updated);
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-neutral-950 text-neutral-100 overflow-hidden font-sans">
       {/* Top Header */}
@@ -600,6 +643,7 @@ export default function App() {
         onOpenKitModal={() => setIsKitModalOpen(true)}
         onOpenPeaceLoveConvert={() => setIsPeaceLoveConvertOpen(true)}
         onOpenCloudinary={() => setIsCloudinaryOpen(true)}
+        onOpenAdminSettings={() => setIsAdminSettingsOpen(true)}
         isSaved={isSaved}
         documentTitle={documentTitle}
       />
@@ -639,6 +683,7 @@ export default function App() {
               onGroupElements={handleGroupElements}
               onInsertElementAtPosition={handleInsertElementAtPosition}
               onResetDocument={() => setIsConfirmNewProjectOpen(true)}
+              onOpenCidoEditor={handleOpenCido}
             />
 
             {/* Right Element Properties Panel */}
@@ -652,6 +697,7 @@ export default function App() {
               onToggleLock={() => selectedElement && handleToggleLock(selectedElement.id)}
               isAspectRatioLocked={isAspectRatioLocked}
               onToggleAspectRatio={() => setIsAspectRatioLocked(!isAspectRatioLocked)}
+              onOpenCidoEditor={handleOpenCido}
             />
           </>
         )}
@@ -718,6 +764,31 @@ export default function App() {
         onClose={() => setIsCloudinaryOpen(false)}
         html={currentHtml}
         onUpdateHtmlImages={(updated) => updateHtml(updated)}
+      />
+
+      {/* Mandatory Admin Authentication Gate */}
+      <AdminAuthModal
+        isAuthenticated={isAuthenticated}
+        onLoginSuccess={() => setIsAuthenticated(true)}
+      />
+
+      {/* Admin Settings & Password Update Modal */}
+      <AdminSettingsModal
+        isOpen={isAdminSettingsOpen}
+        onClose={() => setIsAdminSettingsOpen(false)}
+        onLogout={() => {
+          localStorage.removeItem('courrier_admin_auth');
+          setIsAuthenticated(false);
+        }}
+      />
+
+      {/* CIDO Image Studio Modal */}
+      <CidoImageEditorModal
+        isOpen={isCidoOpen}
+        onClose={() => setIsCidoOpen(false)}
+        imageSrc={cidoTarget.imageSrc}
+        elementId={cidoTarget.elementId}
+        onApplyImageToDocument={handleApplyCidoImage}
       />
 
       {/* Confirmation Modal for New Project */}

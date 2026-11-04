@@ -23,7 +23,8 @@ import {
   MousePointerClick,
   Heading1,
   AlignLeft,
-  Minus
+  Minus,
+  Download
 } from 'lucide-react';
 import { DeviceViewport, SelectedElementInfo, AlignmentGuide } from '../types/editor';
 
@@ -41,6 +42,7 @@ interface VisualCanvasProps {
   onGroupElements?: (ids: string[]) => void;
   onInsertElementAtPosition?: (elementType: string, targetId: string, position: 'before' | 'after') => void;
   onResetDocument?: () => void;
+  onOpenCidoEditor?: (elementId: string, imageSrc: string) => void;
 }
 
 export const VisualCanvas: React.FC<VisualCanvasProps> = ({
@@ -57,6 +59,7 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
   onGroupElements,
   onInsertElementAtPosition,
   onResetDocument,
+  onOpenCidoEditor,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -84,6 +87,12 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
   const [isInlineEditing, setIsInlineEditing] = useState<boolean>(false);
   const [showInsertMenu, setShowInsertMenu] = useState<boolean>(false);
   const [insertPosition, setInsertPosition] = useState<'before' | 'after'>('after');
+  const [caretPopover, setCaretPopover] = useState<{
+    screenX: number;
+    screenY: number;
+    targetId: string;
+  } | null>(null);
+  const [caretInsertPosition, setCaretInsertPosition] = useState<'before' | 'after'>('after');
   const dragStartPos = useRef<{ x: number; y: number; originalLeft: number; originalTop: number; originalWidth: number; originalHeight: number }>({
     x: 0,
     y: 0,
@@ -350,12 +359,36 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
       }
     });
 
-    // Double-click for direct inline text editing in canvas
-    iframeDoc.body.addEventListener('dblclick', (e) => {
+    // Double-click anywhere on the document:
+    // 1. If clicking an image -> open CIDO Image Studio
+    // 2. Anywhere else -> show blinking caret and insertion popover
+    iframeDoc.body.addEventListener('dblclick', (e: MouseEvent) => {
       const target = (e.target as HTMLElement).closest('[data-cs-id]') as HTMLElement;
+
+      // 1. Double clicking an image: open CIDO Studio directly!
+      if (target && (target.tagName.toLowerCase() === 'img' || target.getAttribute('data-cs-type') === 'image')) {
+        const id = target.getAttribute('data-cs-id') || '';
+        const src = target.getAttribute('src') || '';
+        if (onOpenCidoEditor) {
+          onOpenCidoEditor(id, src);
+          return;
+        }
+      }
+
+      // 2. If clicking on a text element, enable inline editing if desired
       if (target && target.tagName.toLowerCase() !== 'img') {
         const id = target.getAttribute('data-cs-id');
         if (id) activateInlineEdit(id);
+      }
+
+      // 3. Compute screen coordinates for the blinking caret and insertion popover
+      const iframeRect = iframeRef.current?.getBoundingClientRect();
+      if (iframeRect) {
+        const scale = zoom / 100;
+        const screenX = iframeRect.left + (e.clientX * scale);
+        const screenY = iframeRect.top + (e.clientY * scale);
+        const targetId = target?.getAttribute('data-cs-id') || selectedElement?.id || '';
+        setCaretPopover({ screenX, screenY, targetId });
       }
     });
 
@@ -1187,12 +1220,36 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
                           <Minus className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
                           <span>Séparateur</span>
                         </button>
+                        <button
+                          onClick={() => {
+                            onInsertElementAtPosition('download-pdf', selectedElement.id, insertPosition);
+                            setShowInsertMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 bg-red-950/40 hover:bg-red-950/70 border border-red-800/60 rounded text-left transition-colors text-[11px]"
+                        >
+                          <Download className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                          <span className="font-bold text-red-200">Bouton Télécharger PDF</span>
+                        </button>
                       </div>
                     )}
                   </div>
                 )}
 
                 <div className="w-[1px] h-3.5 bg-neutral-800 my-auto" />
+
+                {/* CIDO Image Editor Quick Action */}
+                {(selectedElement.tagName === 'img' || selectedElement.type === 'image') && onOpenCidoEditor && (
+                  <>
+                    <button
+                      onClick={() => onOpenCidoEditor(selectedElement.id, selectedElement.attributes.src || '')}
+                      className="px-2 py-0.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow-xs transition-all"
+                      title="Ouvrir le Studio Visuel CIDO (21 outils de retouche & calques)"
+                    >
+                      <span>🎨 CIDO Retouche</span>
+                    </button>
+                    <div className="w-[1px] h-3.5 bg-neutral-800 my-auto" />
+                  </>
+                )}
 
                 {/* Image Aspect Ratio Mode Indicator & Toggle */}
                 {(selectedElement.tagName === 'img' || selectedElement.type === 'image') && (
@@ -1298,6 +1355,168 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
                   />
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Canva-style Blinking Caret & Placement Popover on Double Click anywhere */}
+        {caretPopover && (
+          <div
+            className="fixed z-50 transition-none pointer-events-auto"
+            style={{
+              left: `${Math.min(window.innerWidth - 320, Math.max(20, caretPopover.screenX))}px`,
+              top: `${Math.min(window.innerHeight - 420, Math.max(60, caretPopover.screenY))}px`,
+            }}
+          >
+            {/* Blinking Caret Indicator */}
+            <div className="absolute -top-3 -left-1 w-1 h-7 bg-indigo-500 shadow-[0_0_12px_rgba(99,102,241,1)] rounded-full animate-pulse pointer-events-none" />
+
+            {/* Floating Insertion Menu Card */}
+            <div className="w-72 bg-neutral-900/95 backdrop-blur-md border border-neutral-700/90 rounded-xl shadow-2xl p-3 text-neutral-200 text-xs space-y-2 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                <div className="flex items-center gap-1.5 font-bold text-white text-[11px]">
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
+                  <span>Insérer à cet emplacement</span>
+                </div>
+                <button
+                  onClick={() => setCaretPopover(null)}
+                  className="p-1 text-neutral-400 hover:text-white rounded hover:bg-neutral-800"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Position controls */}
+              <div className="grid grid-cols-2 gap-1 p-1 bg-neutral-950 rounded-lg border border-neutral-800 text-[10px] font-semibold">
+                <button
+                  onClick={() => setCaretInsertPosition('before')}
+                  className={`py-1 rounded text-center transition-colors ${caretInsertPosition === 'before' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
+                >
+                  ▲ Avant (Dessus)
+                </button>
+                <button
+                  onClick={() => setCaretInsertPosition('after')}
+                  className={`py-1 rounded text-center transition-colors ${caretInsertPosition === 'after' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'}`}
+                >
+                  ▼ Après (Dessous)
+                </button>
+              </div>
+
+              {/* Elements list */}
+              <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
+                <button
+                  onClick={() => {
+                    onInsertElementAtPosition?.('heading-1', caretPopover.targetId, caretInsertPosition);
+                    setCaretPopover(null);
+                  }}
+                  className="w-full flex items-center gap-2 p-1.5 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                >
+                  <Heading1 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span>Grand Titre H1</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onInsertElementAtPosition?.('paragraph', caretPopover.targetId, caretInsertPosition);
+                    setCaretPopover(null);
+                  }}
+                  className="w-full flex items-center gap-2 p-1.5 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                >
+                  <AlignLeft className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                  <span>Paragraphe / Sous-texte</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onInsertElementAtPosition?.('logo', caretPopover.targetId, caretInsertPosition);
+                    setCaretPopover(null);
+                  }}
+                  className="w-full flex items-center gap-2 p-1.5 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Logo de marque (200px)</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onInsertElementAtPosition?.('image', caretPopover.targetId, caretInsertPosition);
+                    setCaretPopover(null);
+                  }}
+                  className="w-full flex items-center gap-2 p-1.5 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>Image / Bannière (560px)</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onInsertElementAtPosition?.('button', caretPopover.targetId, caretInsertPosition);
+                    setCaretPopover(null);
+                  }}
+                  className="w-full flex items-center gap-2 p-1.5 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                >
+                  <MousePointerClick className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span>Bouton d'Action (CTA)</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onInsertElementAtPosition?.('download-pdf', caretPopover.targetId, caretInsertPosition);
+                    setCaretPopover(null);
+                  }}
+                  className="w-full flex items-center gap-2 p-1.5 bg-red-950/40 hover:bg-red-950/70 border border-red-800/60 rounded text-left transition-colors text-[11px]"
+                >
+                  <Download className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  <span className="font-bold text-red-200">Bouton « Télécharger le PDF »</span>
+                </button>
+
+                <div className="pt-1 border-t border-neutral-800/80">
+                  <div className="text-[10px] text-neutral-500 font-semibold uppercase px-1 mb-1">Calques & Plans</div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      onClick={() => {
+                        onInsertElementAtPosition?.('layer-foreground', caretPopover.targetId, caretInsertPosition);
+                        setCaretPopover(null);
+                      }}
+                      className="p-1 bg-neutral-950 hover:bg-neutral-800 rounded border border-neutral-800 text-[10px] text-center text-indigo-300 font-semibold transition-colors"
+                      title="Premier Plan"
+                    >
+                      1er Plan
+                    </button>
+                    <button
+                      onClick={() => {
+                        onInsertElementAtPosition?.('layer-midground', caretPopover.targetId, caretInsertPosition);
+                        setCaretPopover(null);
+                      }}
+                      className="p-1 bg-neutral-950 hover:bg-neutral-800 rounded border border-neutral-800 text-[10px] text-center text-neutral-300 font-semibold transition-colors"
+                      title="Plan Intermédiaire"
+                    >
+                      Interm.
+                    </button>
+                    <button
+                      onClick={() => {
+                        onInsertElementAtPosition?.('layer-background', caretPopover.targetId, caretInsertPosition);
+                        setCaretPopover(null);
+                      }}
+                      className="p-1 bg-neutral-950 hover:bg-neutral-800 rounded border border-neutral-800 text-[10px] text-center text-neutral-400 font-semibold transition-colors"
+                      title="Arrière-Plan"
+                    >
+                      Arrière
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    onInsertElementAtPosition?.('divider', caretPopover.targetId, caretInsertPosition);
+                    setCaretPopover(null);
+                  }}
+                  className="w-full flex items-center gap-2 p-1.5 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                >
+                  <Minus className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                  <span>Séparateur</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

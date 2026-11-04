@@ -197,6 +197,63 @@ app.post('/api/cloudinary/upload', async (req: Request, res: Response) => {
 });
 
 // -------------------------------------------------------------
+// Direct Local & Alternative Image Hosting
+// -------------------------------------------------------------
+const localImageStorage = new Map<string, { buffer: Buffer; mime: string }>();
+
+app.post('/api/hosting/local-upload', (req: Request, res: Response) => {
+  const { file } = req.body;
+  if (!file) {
+    res.status(400).json({ error: 'Fichier image manquant.' });
+    return;
+  }
+
+  try {
+    const id = crypto.randomBytes(12).toString('hex');
+    let mime = 'image/png';
+    let buffer: Buffer;
+
+    if (typeof file === 'string' && file.startsWith('data:')) {
+      const matches = file.match(/^data:([^;]+);base64,(.+)$/);
+      if (matches) {
+        mime = matches[1];
+        buffer = Buffer.from(matches[2], 'base64');
+      } else {
+        buffer = Buffer.from(file);
+      }
+    } else {
+      buffer = Buffer.from(file);
+    }
+
+    localImageStorage.set(id, { buffer, mime });
+    const localUrl = `/api/hosting/images/${id}`;
+
+    res.json({
+      success: true,
+      id,
+      url: localUrl,
+      secureUrl: localUrl,
+      format: mime.split('/')[1] || 'png',
+      bytes: buffer.length,
+      message: 'Image hébergée avec succès sur le serveur local !',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: `Erreur d'hébergement local: ${err.message}` });
+  }
+});
+
+app.get('/api/hosting/images/:id', (req: Request, res: Response) => {
+  const item = localImageStorage.get(req.params.id);
+  if (!item) {
+    res.status(404).send('Image non trouvée');
+    return;
+  }
+  res.setHeader('Content-Type', item.mime);
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  res.send(item.buffer);
+});
+
+// -------------------------------------------------------------
 // Vite Middleware & Static Serving
 // -------------------------------------------------------------
 async function startServer() {

@@ -22,7 +22,8 @@ import {
   getAvailableTargetFormats, 
   getFileExtension, 
   executeFileConversion, 
-  runOcrRecognition 
+  runOcrRecognition,
+  formatOcrToEmailHtml
 } from '../../utils/converterEngine';
 import { exportHtmlToDocx } from '../../utils/docxExporter';
 
@@ -596,19 +597,36 @@ export const PeaceLoveConvertModal: React.FC<PeaceLoveConvertModalProps> = ({
                       className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-3 text-xs text-neutral-200 font-sans focus:outline-none focus:border-amber-500 resize-none leading-relaxed"
                     />
 
-                    {/* Direct Reuse in HTML Email Editor */}
-                    {onInsertOcrTextToEmail && (
-                      <button
-                        onClick={() => {
-                          onInsertOcrTextToEmail(ocrResultText);
-                          onClose();
-                        }}
-                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-2"
-                      >
-                        <ArrowRight className="w-3.5 h-3.5" />
-                        <span>Insérer directement ce texte dans l'Email en cours</span>
-                      </button>
-                    )}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      {onLoadHtmlToEditor && (
+                        <button
+                          onClick={() => {
+                            const formattedHtml = formatOcrToEmailHtml(ocrFile?.name || 'Document OCR Reconstruit', ocrResultText);
+                            onLoadHtmlToEditor(formattedHtml, ocrFile?.name || 'Document OCR');
+                            onClose();
+                          }}
+                          className="py-2 px-3 bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5"
+                          title="Reconstruit la mise en page et les styles typographiques dans l'éditeur"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Appliquer au document (Mise en page)</span>
+                        </button>
+                      )}
+
+                      {onInsertOcrTextToEmail && (
+                        <button
+                          onClick={() => {
+                            onInsertOcrTextToEmail(ocrResultText);
+                            onClose();
+                          }}
+                          className="py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5"
+                          title="Ajoute ce texte à l'emplacement actuel de l'email"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                          <span>Insérer bloc dans l'email</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

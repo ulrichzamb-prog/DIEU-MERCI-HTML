@@ -20,7 +20,8 @@ import {
   Sparkles,
   AlertTriangle,
   Info,
-  CheckCircle2
+  CheckCircle2,
+  Download
 } from 'lucide-react';
 import { EmailMetadata, SelectedElementInfo } from '../types/editor';
 import { AuditResult } from '../utils/emailCompatibility';
@@ -198,6 +199,21 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                   <div className="text-[10px] text-neutral-500">Bouton compatible Outlook avec styles inline</div>
                 </div>
               </button>
+
+              {/* Action Button: Télécharger le PDF */}
+              <button
+                draggable={true}
+                onDragStart={(e) => e.dataTransfer.setData('application/courrier-element', 'download-pdf')}
+                onClick={() => onInsertElement('download-pdf')}
+                className="col-span-2 flex items-center gap-2 p-2.5 rounded-lg bg-red-950/40 hover:bg-red-950/70 border border-red-800/60 hover:border-red-600 text-left transition-all group cursor-grab active:cursor-grabbing"
+                title="Insère un bouton d'action permettant au destinataire de télécharger l'email en PDF"
+              >
+                <Download className="w-4 h-4 text-red-400 group-hover:scale-110 transition-transform" />
+                <div>
+                  <div className="text-xs font-bold text-red-200">Bouton « Télécharger le PDF »</div>
+                  <div className="text-[10px] text-red-400/80">Action d'impression / téléchargement PDF pour le destinataire</div>
+                </div>
+              </button>
             </div>
           </div>
 
@@ -244,6 +260,36 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
                   <MoveVertical className="w-4 h-4 text-neutral-400" />
                   <span className="text-xs font-medium text-neutral-200">Espaceur 24px</span>
                 </button>
+              </div>
+
+              {/* Plans de Calques */}
+              <div className="pt-2 border-t border-neutral-800/80">
+                <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                  Gestion de Calques & Plans
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <button
+                    onClick={() => onInsertElement('layer-foreground')}
+                    className="p-1.5 rounded bg-neutral-950/80 hover:bg-neutral-800 border border-neutral-800 text-[10px] text-center text-indigo-300 font-semibold transition-colors"
+                    title="Insère un bloc Premier Plan"
+                  >
+                    Premier Plan
+                  </button>
+                  <button
+                    onClick={() => onInsertElement('layer-midground')}
+                    className="p-1.5 rounded bg-neutral-950/80 hover:bg-neutral-800 border border-neutral-800 text-[10px] text-center text-neutral-300 font-semibold transition-colors"
+                    title="Insère un bloc Plan Intermédiaire"
+                  >
+                    Intermédiaire
+                  </button>
+                  <button
+                    onClick={() => onInsertElement('layer-background')}
+                    className="p-1.5 rounded bg-neutral-950/80 hover:bg-neutral-800 border border-neutral-800 text-[10px] text-center text-neutral-400 font-semibold transition-colors"
+                    title="Insère un bloc Arrière-Plan"
+                  >
+                    Arrière-Plan
+                  </button>
+                </div>
               </div>
             </div>
           </div>

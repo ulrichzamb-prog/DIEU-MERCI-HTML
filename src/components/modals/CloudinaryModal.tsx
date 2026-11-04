@@ -12,7 +12,9 @@ import {
   RefreshCw, 
   Image as ImageIcon,
   ExternalLink,
-  Lock
+  Lock,
+  Server,
+  Code
 } from 'lucide-react';
 
 interface CloudinaryImageItem {
@@ -32,13 +34,17 @@ interface CloudinaryModalProps {
   onUpdateHtmlImages: (updatedHtml: string) => void;
 }
 
+export type HostingProviderType = 'cloudinary' | 'local_server' | 'base64_direct';
+
 export const CloudinaryModal: React.FC<CloudinaryModalProps> = ({
   isOpen,
   onClose,
   html,
   onUpdateHtmlImages,
 }) => {
-  // Configuration credentials state (sent directly to server, never stored in client localStorage)
+  const [activeProvider, setActiveProvider] = useState<HostingProviderType>('cloudinary');
+
+  // Configuration credentials state for Cloudinary
   const [cloudName, setCloudName] = useState<string>('');
   const [apiKey, setApiKey] = useState<string>('');
   const [apiSecret, setApiSecret] = useState<string>('');
@@ -93,20 +99,20 @@ export const CloudinaryModal: React.FC<CloudinaryModalProps> = ({
       const src = img.getAttribute('src') || '';
       if (!src) return;
 
-      const isAlreadyCloudinary = src.includes('res.cloudinary.com');
+      const isHosted = src.includes('res.cloudinary.com') || src.includes('/api/hosting/images/');
       items.push({
         id: `img-${idx}`,
         originalSrc: src,
         elementId: img.getAttribute('data-cs-id') || undefined,
-        status: isAlreadyCloudinary ? 'hosted' : 'pending',
-        hostedUrl: isAlreadyCloudinary ? src : undefined,
+        status: isHosted ? 'hosted' : 'pending',
+        hostedUrl: isHosted ? src : undefined,
       });
     });
 
     setDetectedImages(items);
   };
 
-  // Save credentials securely to server
+  // Save Cloudinary credentials securely to server
   const handleSaveCredentials = async () => {
     if (!cloudName || !apiKey || !apiSecret) return;
 
@@ -159,39 +165,65 @@ export const CloudinaryModal: React.FC<CloudinaryModalProps> = ({
     }
   };
 
-  // Upload an individual image to Cloudinary via server proxy
+  // Upload an individual image according to active provider
   const uploadSingleImage = async (item: CloudinaryImageItem): Promise<string | null> => {
     setDetectedImages((prev) =>
       prev.map((i) => (i.id === item.id ? { ...i, status: 'uploading' } : i))
     );
 
     try {
-      const res = await fetch('/api/cloudinary/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          file: item.originalSrc,
-          folder: 'courrier_studio_emails',
-        }),
-      });
+      if (activeProvider === 'local_server') {
+        const res = await fetch('/api/hosting/local-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file: item.originalSrc }),
+        });
+        if (!res.ok) throw new Error("Échec d'hébergement serveur local");
+        const data = await res.json();
+        const secureUrl = data.secureUrl;
+        setDetectedImages((prev) =>
+          prev.map((i) =>
+            i.id === item.id ? { ...i, status: 'hosted', hostedUrl: secureUrl, bytes: data.bytes } : i
+          )
+        );
+        return secureUrl;
+      } else if (activeProvider === 'base64_direct') {
+        // Keeps raw base64 or SVG data inline
+        setDetectedImages((prev) =>
+          prev.map((i) =>
+            i.id === item.id ? { ...i, status: 'hosted', hostedUrl: item.originalSrc } : i
+          )
+        );
+        return item.originalSrc;
+      } else {
+        // Cloudinary
+        const res = await fetch('/api/cloudinary/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file: item.originalSrc,
+            folder: 'courrier_studio_emails',
+          }),
+        });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Échec du téléversement');
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || 'Échec du téléversement');
+        }
+
+        const data = await res.json();
+        const secureUrl = data.secureUrl;
+
+        setDetectedImages((prev) =>
+          prev.map((i) =>
+            i.id === item.id
+              ? { ...i, status: 'hosted', hostedUrl: secureUrl, bytes: data.bytes }
+              : i
+          )
+        );
+
+        return secureUrl;
       }
-
-      const data = await res.json();
-      const secureUrl = data.secureUrl;
-
-      setDetectedImages((prev) =>
-        prev.map((i) =>
-          i.id === item.id
-            ? { ...i, status: 'hosted', hostedUrl: secureUrl, bytes: data.bytes }
-            : i
-        )
-      );
-
-      return secureUrl;
     } catch (err: any) {
       setDetectedImages((prev) =>
         prev.map((i) =>
@@ -216,7 +248,6 @@ export const CloudinaryModal: React.FC<CloudinaryModalProps> = ({
       }
     }
 
-    // Replace original image URLs in the document with the new HTTPS Cloudinary URLs
     if (Object.keys(replacements).length > 0) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
@@ -249,20 +280,11 @@ export const CloudinaryModal: React.FC<CloudinaryModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-bold text-white tracking-tight">
-                  Hébergement Public Cloudinary
+                  Hébergement d'Images & Logos Multi-Options
                 </h2>
-                {isConfiguredOnServer ? (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-semibold">
-                    Configuré ({serverCloudName})
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800 font-semibold">
-                    Non configuré
-                  </span>
-                )}
               </div>
               <p className="text-xs text-neutral-400">
-                Hébergez vos logos et visuels en HTTPS public sans exposer vos clés secrètes
+                Choix entre Cloudinary (HTTPS public), Serveur Local direct ou Base64 autonome
               </p>
             </div>
           </div>
@@ -275,200 +297,251 @@ export const CloudinaryModal: React.FC<CloudinaryModalProps> = ({
           </button>
         </div>
 
+        {/* Provider Switcher Tabs */}
+        <div className="flex border-b border-neutral-800 bg-neutral-950/40 px-6 pt-2 gap-2">
+          <button
+            onClick={() => setActiveProvider('cloudinary')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeProvider === 'cloudinary'
+                ? 'border-sky-500 text-white'
+                : 'border-transparent text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5 text-sky-400" />
+            <span>1. Cloudinary API</span>
+          </button>
+
+          <button
+            onClick={() => setActiveProvider('local_server')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeProvider === 'local_server'
+                ? 'border-emerald-500 text-white'
+                : 'border-transparent text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5 text-emerald-400" />
+            <span>2. Serveur Local Direct</span>
+          </button>
+
+          <button
+            onClick={() => setActiveProvider('base64_direct')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeProvider === 'base64_direct'
+                ? 'border-amber-500 text-white'
+                : 'border-transparent text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            <Code className="w-3.5 h-3.5 text-amber-400" />
+            <span>3. Base64 Autonome</span>
+          </button>
+        </div>
+
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
-          {/* Credentials Configuration Box */}
-          <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-white flex items-center gap-2">
-                <Lock className="w-3.5 h-3.5 text-indigo-400" />
-                Identifiants Serveur Sécurisés
-              </span>
-              <span className="text-[10px] text-neutral-500">
-                Conservés strictement côté serveur
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="block text-[10px] text-neutral-400 mb-1">Cloud Name</label>
-                <input
-                  type="text"
-                  value={cloudName}
-                  onChange={(e) => setCloudName(e.target.value)}
-                  placeholder="votre_cloud_name"
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
-                />
+          {/* Provider 1: Cloudinary Configuration Box */}
+          {activeProvider === 'cloudinary' && (
+            <div className="p-4 bg-neutral-950 rounded-xl border border-neutral-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-white flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-indigo-400" />
+                  Identifiants Cloudinary Sécurisés
+                </span>
+                <span className="text-[10px] text-neutral-500">
+                  Conservés strictement côté serveur
+                </span>
               </div>
 
-              <div>
-                <label className="block text-[10px] text-neutral-400 mb-1">API Key</label>
-                <input
-                  type="text"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="1234567890"
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
-                />
-              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[10px] text-neutral-400 mb-1">Cloud Name</label>
+                  <input
+                    type="text"
+                    value={cloudName}
+                    onChange={(e) => setCloudName(e.target.value)}
+                    placeholder="votre_cloud_name"
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[10px] text-neutral-400 mb-1">API Secret</label>
-                <input
-                  type="password"
-                  value={apiSecret}
-                  onChange={(e) => setApiSecret(e.target.value)}
-                  placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
-                />
-              </div>
-            </div>
+                <div>
+                  <label className="block text-[10px] text-neutral-400 mb-1">API Key</label>
+                  <input
+                    type="text"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="1234567890"
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                  />
+                </div>
 
-            <div className="flex items-center justify-between pt-1">
-              <button
-                onClick={handleSaveCredentials}
-                disabled={!cloudName || !apiKey || !apiSecret}
-                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded text-xs font-semibold transition-all"
-              >
-                Enregistrer la Configuration
-              </button>
-
-              <button
-                onClick={handleTestConnection}
-                disabled={isTesting || (!isConfiguredOnServer && (!cloudName || !apiKey || !apiSecret))}
-                className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-neutral-200 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors"
-              >
-                {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                <span>Tester la Connexion Réelle</span>
-              </button>
-            </div>
-
-            {/* Test Result Message */}
-            {testResult && (
-              <div
-                className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
-                  testResult.success
-                    ? 'bg-emerald-950/40 border border-emerald-800 text-emerald-300'
-                    : 'bg-red-950/40 border border-red-800 text-red-300'
-                }`}
-              >
-                {testResult.success ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <span>{testResult.message}</span>
-                  {testResult.latency && (
-                    <span className="ml-2 font-mono text-[10px] text-emerald-400">
-                      (Latence: {testResult.latency})
-                    </span>
-                  )}
+                <div>
+                  <label className="block text-[10px] text-neutral-400 mb-1">API Secret</label>
+                  <input
+                    type="password"
+                    value={apiSecret}
+                    onChange={(e) => setApiSecret(e.target.value)}
+                    placeholder="••••••••••••"
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                  />
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Detected Images in Template */}
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  onClick={handleSaveCredentials}
+                  disabled={!cloudName || !apiKey || !apiSecret}
+                  className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded text-xs font-semibold transition-all"
+                >
+                  Enregistrer la Configuration
+                </button>
+
+                <button
+                  onClick={handleTestConnection}
+                  disabled={isTesting || (!isConfiguredOnServer && (!cloudName || !apiKey || !apiSecret))}
+                  className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-neutral-200 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  <span>Tester la Connexion Réelle</span>
+                </button>
+              </div>
+
+              {testResult && (
+                <div
+                  className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                    testResult.success
+                      ? 'bg-emerald-950/40 border border-emerald-800 text-emerald-300'
+                      : 'bg-red-950/40 border border-red-800 text-red-300'
+                  }`}
+                >
+                  {testResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <span className="font-semibold">{testResult.message}</span>
+                    {testResult.latency && (
+                      <span className="text-[10px] text-neutral-400 ml-2">({testResult.latency})</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Provider 2: Local Server Hosting */}
+          {activeProvider === 'local_server' && (
+            <div className="p-4 bg-emerald-950/20 rounded-xl border border-emerald-800/60 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+                <Server className="w-4 h-4" />
+                <span>Hébergement Direct sur le Serveur de l'Application</span>
+              </div>
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                Les images sont stockées et servies directement par les routes <code>/api/hosting/images/:id</code>. Aucun compte externe ni clé d'API n'est nécessaire.
+              </p>
+              <div className="p-2 bg-neutral-950 rounded border border-neutral-800 text-[11px] text-neutral-400">
+                ✓ Prêt à l'emploi immédiatement sans configuration externe.
+              </div>
+            </div>
+          )}
+
+          {/* Provider 3: Base64 Direct */}
+          {activeProvider === 'base64_direct' && (
+            <div className="p-4 bg-amber-950/20 rounded-xl border border-amber-800/60 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                <Code className="w-4 h-4" />
+                <span>Intégration Directe Base64 (Data URI)</span>
+              </div>
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                Les images et logos sont encodés directement dans le code source HTML sous forme de données Base64 autonomes. Ne nécessite aucun serveur d'hébergement.
+              </p>
+              <div className="p-2 bg-neutral-950 rounded border border-neutral-800 text-[11px] text-neutral-400">
+                ✓ 100% autonome, idéal pour les maquettes, les tests et les logos SVG.
+              </div>
+            </div>
+          )}
+
+          {/* Images detected list */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold text-white">
-                  Images Détectées dans le Template ({detectedImages.length})
-                </div>
-                <div className="text-[11px] text-neutral-400">
-                  Les images locales ou base64 peuvent être hébergées en HTTPS public et réinjectées automatiquement.
-                </div>
-              </div>
+              <span className="text-xs font-bold text-neutral-300 flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4 text-sky-400" />
+                <span>Images du Template ({detectedImages.length})</span>
+              </span>
 
-              <button
-                onClick={handleUploadAllImages}
-                disabled={
-                  isUploadingAll ||
-                  !isConfiguredOnServer ||
-                  detectedImages.filter((i) => i.status === 'pending').length === 0
-                }
-                className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                {isUploadingAll ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Upload className="w-3.5 h-3.5" />
-                )}
-                <span>Téléverser & Remplacer Tout</span>
-              </button>
+              {detectedImages.length > 0 && (
+                <button
+                  onClick={handleUploadAllImages}
+                  disabled={isUploadingAll || detectedImages.every((i) => i.status === 'hosted')}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+                >
+                  {isUploadingAll ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Traitement...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Appliquer l'Hébergement Choisi</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
             {detectedImages.length === 0 ? (
-              <div className="p-4 text-center text-xs text-neutral-500 bg-neutral-950 rounded-lg border border-neutral-800">
-                Aucune image détectée dans cet email.
+              <div className="p-8 text-center bg-neutral-950 rounded-xl border border-neutral-800 text-neutral-500 text-xs">
+                Aucune image détectée dans le document email actuel.
               </div>
             ) : (
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-60 overflow-y-auto">
                 {detectedImages.map((img) => (
                   <div
                     key={img.id}
-                    className="p-2.5 bg-neutral-950 rounded-lg border border-neutral-800 flex items-center justify-between text-xs gap-3"
+                    className="p-2.5 bg-neutral-950 rounded-lg border border-neutral-800 flex items-center justify-between gap-3 text-xs"
                   >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <img
-                        src={img.hostedUrl || img.originalSrc}
-                        alt="Aperçu"
-                        className="w-8 h-8 rounded object-cover bg-neutral-900 border border-neutral-800 shrink-0"
-                      />
-                      <div className="min-w-0 flex-1 truncate">
-                        <span className="font-mono text-neutral-300 text-[11px] truncate block">
-                          {img.hostedUrl || img.originalSrc.slice(0, 48) + '...'}
-                        </span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded border border-neutral-800 bg-neutral-900 overflow-hidden shrink-0 flex items-center justify-center">
+                        <img
+                          src={img.hostedUrl || img.originalSrc}
+                          alt="preview"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-mono text-[11px] text-neutral-300 max-w-[320px]">
+                          {img.hostedUrl || img.originalSrc}
+                        </div>
+                        <div className="text-[10px] text-neutral-500 mt-0.5">
+                          {img.status === 'hosted' ? (
+                            <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Hébergée avec succès
+                            </span>
+                          ) : img.status === 'uploading' ? (
+                            <span className="text-sky-400 flex items-center gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin" /> En cours...
+                            </span>
+                          ) : (
+                            <span className="text-amber-400">En attente d'hébergement</span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {img.status === 'hosted' && (
-                        <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
-                          <Check className="w-3 h-3" /> Hébergée
-                        </span>
-                      )}
-                      {img.status === 'pending' && (
-                        <span className="text-[11px] text-amber-400">En attente</span>
-                      )}
-                      {img.status === 'uploading' && (
-                        <span className="text-[11px] text-sky-400 flex items-center gap-1">
-                          <Loader2 className="w-3 h-3 animate-spin" /> En cours...
-                        </span>
-                      )}
-                      {img.status === 'error' && (
-                        <span className="text-[11px] text-red-400">Erreur</span>
-                      )}
-
-                      {img.hostedUrl && (
-                        <a
-                          href={img.hostedUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-1 text-neutral-400 hover:text-white"
-                          title="Voir l'image publique"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      )}
-                    </div>
+                    {img.status !== 'hosted' && (
+                      <button
+                        onClick={() => uploadSingleImage(img)}
+                        className="px-2.5 py-1 bg-neutral-800 hover:bg-sky-600 text-neutral-300 hover:text-white rounded text-[11px] font-semibold transition-colors shrink-0"
+                      >
+                        Héberger
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3.5 bg-neutral-950/70 border-t border-neutral-800 flex items-center justify-between text-xs text-neutral-400">
-          <span>Sécurité : Les secrets API ne transitent jamais dans le navigateur public</span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg font-medium transition-colors"
-          >
-            Fermer
-          </button>
         </div>
       </div>
     </div>

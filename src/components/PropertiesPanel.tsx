@@ -29,6 +29,7 @@ interface PropertiesPanelProps {
   onToggleLock: () => void;
   isAspectRatioLocked?: boolean;
   onToggleAspectRatio?: () => void;
+  onOpenCidoEditor?: (elementId: string, imageSrc: string) => void;
 }
 
 const EMAIL_SAFE_FONTS = [
@@ -52,6 +53,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onToggleLock,
   isAspectRatioLocked = true,
   onToggleAspectRatio,
+  onOpenCidoEditor,
 }) => {
   if (!selectedElement) {
     return (
@@ -213,6 +215,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 placeholder="Description pour les filtres anti-spam et malvoyants"
               />
             </div>
+
+            {/* CIDO Image Editor Trigger Button */}
+            {onOpenCidoEditor && (
+              <button
+                type="button"
+                onClick={() => onOpenCidoEditor(selectedElement.id, attributes.src || '')}
+                className="w-full mt-2 py-2 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-lg shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+              >
+                <span>🎨 Ouvrir Studio CIDO (21 Outils)</span>
+              </button>
+            )}
           </div>
         )}
 
