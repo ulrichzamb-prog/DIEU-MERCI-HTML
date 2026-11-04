@@ -186,18 +186,85 @@ export function formatHtml(html: string): string {
 
 /**
  * Prepares the final exportable HTML:
- * Strips editor internal attributes (`data-cs-id`, `data-cs-locked`, etc.)
- * while keeping all formatting, email styles, tables and conditional comments.
+ * - Strips editor internal attributes (`data-cs-id`, `data-cs-locked`, etc.)
+ * - Enforces email client rendering compatibility (Outlook MSO namespaces, table presentation roles, img reset styles, Gmail viewport meta)
  */
 export function cleanHtmlForExport(html: string): string {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
+  // Strip internal studio attributes
   const taggedElements = doc.querySelectorAll('[data-cs-id], [data-cs-locked]');
   taggedElements.forEach((el) => {
     el.removeAttribute('data-cs-id');
     el.removeAttribute('data-cs-locked');
   });
 
-  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  // Enforce table presentation role and zero spacing for email clients
+  const tables = doc.querySelectorAll('table');
+  tables.forEach((table) => {
+    if (!table.getAttribute('role')) table.setAttribute('role', 'presentation');
+    if (!table.getAttribute('cellpadding')) table.setAttribute('cellpadding', '0');
+    if (!table.getAttribute('cellspacing')) table.setAttribute('cellspacing', '0');
+    if (!table.getAttribute('border')) table.setAttribute('border', '0');
+  });
+
+  // Enforce email-safe image attributes
+  const images = doc.querySelectorAll('img');
+  images.forEach((img) => {
+    if (!img.getAttribute('alt')) img.setAttribute('alt', '');
+    if (!img.getAttribute('border')) img.setAttribute('border', '0');
+    
+    // Add explicit width attribute for Outlook desktop if style width exists
+    if (!img.getAttribute('width') && img.style.width && img.style.width.endsWith('px')) {
+      const widthVal = parseInt(img.style.width, 10);
+      if (!isNaN(widthVal)) {
+        img.setAttribute('width', String(widthVal));
+      }
+    }
+  });
+
+  // Ensure head has standard email client tags
+  if (doc.head) {
+    if (!doc.head.querySelector('meta[name="viewport"]')) {
+      const meta = doc.createElement('meta');
+      meta.name = 'viewport';
+      meta.content = 'width=device-width, initial-scale=1.0';
+      doc.head.insertBefore(meta, doc.head.firstChild);
+    }
+    if (!doc.head.querySelector('meta[name="x-apple-disable-message-reformatting"]')) {
+      const appleMeta = doc.createElement('meta');
+      appleMeta.name = 'x-apple-disable-message-reformatting';
+      doc.head.appendChild(appleMeta);
+    }
+    if (!doc.head.querySelector('meta[name="format-detection"]')) {
+      const formatMeta = doc.createElement('meta');
+      formatMeta.name = 'format-detection';
+      formatMeta.content = 'telephone=no, date=no, address=no, email=no';
+      doc.head.appendChild(formatMeta);
+    }
+  }
+
+  // Ensure html root has proper xmlns
+  if (doc.documentElement) {
+    if (!doc.documentElement.getAttribute('xmlns')) {
+      doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    }
+    if (!doc.documentElement.getAttribute('xmlns:v')) {
+      doc.documentElement.setAttribute('xmlns:v', 'urn:schemas-microsoft-com:vml');
+    }
+    if (!doc.documentElement.getAttribute('xmlns:o')) {
+      doc.documentElement.setAttribute('xmlns:o', 'urn:schemas-microsoft-com:office:office');
+    }
+  }
+
+  let finalHtml = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n' + doc.documentElement.outerHTML;
+
+  // Insert Outlook MSO OfficeDocumentSettings if not already present
+  if (!finalHtml.includes('OfficeDocumentSettings') && finalHtml.includes('</head>')) {
+    const msoDpi = `<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n`;
+    finalHtml = finalHtml.replace('</head>', `${msoDpi}</head>`);
+  }
+
+  return finalHtml;
 }

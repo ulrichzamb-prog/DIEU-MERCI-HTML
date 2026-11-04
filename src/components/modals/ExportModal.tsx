@@ -13,13 +13,18 @@ import {
 } from 'lucide-react';
 import { cleanHtmlForExport } from '../../utils/htmlSanitizer';
 import { autoFixEmailCompatibility } from '../../utils/emailCompatibility';
+import { exportHtmlToDocx } from '../../utils/docxExporter';
+import { createEmailZipPackage } from '../../utils/zipExporter';
+import { EmailMetadata } from '../../types/editor';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { Archive } from 'lucide-react';
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   html: string;
+  metadata: EmailMetadata;
   documentTitle: string;
 }
 
@@ -27,12 +32,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   isOpen,
   onClose,
   html,
+  metadata,
   documentTitle,
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
   const [autoOptimized, setAutoOptimized] = useState<boolean>(true);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [isExportingPng, setIsExportingPng] = useState<boolean>(false);
+  const [isExportingDocx, setIsExportingDocx] = useState<boolean>(false);
+  const [isExportingZip, setIsExportingZip] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -143,6 +151,46 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     }
   };
 
+  const handleExportDocx = async () => {
+    setIsExportingDocx(true);
+    try {
+      const docxBlob = await exportHtmlToDocx(getExportCode(), documentTitle);
+      const url = URL.createObjectURL(docxBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      const sanitizedTitle = (documentTitle || 'document-email').toLowerCase().replace(/[^a-z0-9]/g, '-');
+      a.download = `${sanitizedTitle}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('DOCX export error:', err);
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
+
+  const handleExportZip = async () => {
+    setIsExportingZip(true);
+    try {
+      const zipBlob = await createEmailZipPackage(getExportCode(), metadata, documentTitle);
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      const sanitizedTitle = (documentTitle || 'template-email').toLowerCase().replace(/[^a-z0-9]/g, '-');
+      a.download = `${sanitizedTitle}-package.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('ZIP export error:', err);
+    } finally {
+      setIsExportingZip(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 select-none">
       <div className="w-full max-w-xl bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
@@ -154,7 +202,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-white">Exporter le Template Email</h2>
-              <p className="text-xs text-neutral-400">Prêt pour l'envoi sur Gmail, Outlook, Brevo, Mailchimp</p>
+              <p className="text-xs text-neutral-400">Formats professionnels : HTML, DOCX, PDF et ZIP</p>
             </div>
           </div>
 
@@ -167,24 +215,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-4">
           {/* Optimization Toggle */}
-          <div className="p-3.5 bg-neutral-950 rounded-lg border border-neutral-800 flex items-center justify-between">
+          <div className="p-3 bg-neutral-950 rounded-lg border border-neutral-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
               <div>
                 <div className="text-xs font-semibold text-white">
                   Optimisation automatique pour la délivrabilité
                 </div>
-                <div className="text-[11px] text-neutral-400">
-                  Nettoie les attributs internes de l'éditeur et garantit la compatibilité Outlook 2016-2021.
+                <div className="text-[10px] text-neutral-400">
+                  Nettoie les attributs internes de l'éditeur et garantit la compatibilité Outlook.
                 </div>
               </div>
             </div>
 
             <button
               onClick={() => setAutoOptimized(!autoOptimized)}
-              className={`w-10 h-6 rounded-full transition-colors p-1 flex items-center ${
+              className={`w-9 h-5 rounded-full transition-colors p-0.5 flex items-center ${
                 autoOptimized ? 'bg-indigo-600 justify-end' : 'bg-neutral-800 justify-start'
               }`}
             >
@@ -192,60 +240,90 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </button>
           </div>
 
-          {/* Export Options Grid */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* Download HTML */}
+          {/* Export Options Grid (6 items) */}
+          <div className="grid grid-cols-2 gap-2.5">
+            {/* 1. Download HTML */}
             <button
               onClick={handleDownloadHtml}
-              className="flex flex-col items-center justify-center p-4 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-indigo-500/60 rounded-xl transition-all text-center group"
+              className="flex flex-col items-center justify-center p-3.5 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-indigo-500/60 rounded-xl transition-all text-center group"
             >
-              <div className="w-10 h-10 rounded-lg bg-indigo-950/80 text-indigo-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                <FileCode className="w-5 h-5" />
+              <div className="w-9 h-9 rounded-lg bg-indigo-950/80 text-indigo-400 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                <FileCode className="w-4 h-4" />
               </div>
               <span className="text-xs font-bold text-white mb-0.5">Télécharger .HTML</span>
-              <span className="text-[10px] text-neutral-400">Code prêt pour vos campagnes</span>
+              <span className="text-[10px] text-neutral-400">Code email responsive</span>
             </button>
 
-            {/* Copy to Clipboard */}
+            {/* 2. Download DOCX */}
             <button
-              onClick={handleCopyCode}
-              className="flex flex-col items-center justify-center p-4 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-emerald-500/60 rounded-xl transition-all text-center group"
+              onClick={handleExportDocx}
+              disabled={isExportingDocx}
+              className="flex flex-col items-center justify-center p-3.5 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-blue-500/60 rounded-xl transition-all text-center group disabled:opacity-40"
             >
-              <div className="w-10 h-10 rounded-lg bg-emerald-950/80 text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+              <div className="w-9 h-9 rounded-lg bg-blue-950/80 text-blue-400 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                <FileText className="w-4 h-4" />
               </div>
               <span className="text-xs font-bold text-white mb-0.5">
-                {copied ? 'Copié dans le presse-papiers !' : 'Copier le Code Source'}
+                {isExportingDocx ? 'Création DOCX...' : 'Télécharger .DOCX'}
               </span>
-              <span className="text-[10px] text-neutral-400">Collable directement dans votre CMS</span>
+              <span className="text-[10px] text-neutral-400">Document Word éditable</span>
             </button>
 
-            {/* Export PDF */}
+            {/* 3. Export PDF */}
             <button
               onClick={handleExportPdf}
               disabled={isExportingPdf}
-              className="flex flex-col items-center justify-center p-4 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-red-500/60 rounded-xl transition-all text-center group disabled:opacity-40"
+              className="flex flex-col items-center justify-center p-3.5 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-red-500/60 rounded-xl transition-all text-center group disabled:opacity-40"
             >
-              <div className="w-10 h-10 rounded-lg bg-red-950/80 text-red-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                <FileText className="w-5 h-5" />
+              <div className="w-9 h-9 rounded-lg bg-red-950/80 text-red-400 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                <FileText className="w-4 h-4" />
               </div>
               <span className="text-xs font-bold text-white mb-0.5">
-                {isExportingPdf ? 'Génération du PDF...' : 'Télécharger l\'Aperçu PDF'}
+                {isExportingPdf ? 'Génération...' : 'Télécharger .PDF'}
               </span>
-              <span className="text-[10px] text-neutral-400">Idéal pour validation client</span>
+              <span className="text-[10px] text-neutral-400">Aperçu vectoriel client</span>
             </button>
 
-            {/* Export PNG */}
+            {/* 4. Export ZIP */}
+            <button
+              onClick={handleExportZip}
+              disabled={isExportingZip}
+              className="flex flex-col items-center justify-center p-3.5 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-amber-500/60 rounded-xl transition-all text-center group disabled:opacity-40"
+            >
+              <div className="w-9 h-9 rounded-lg bg-amber-950/80 text-amber-400 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                <Archive className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-white mb-0.5">
+                {isExportingZip ? 'Compression...' : 'Pack Complet .ZIP'}
+              </span>
+              <span className="text-[10px] text-neutral-400">HTML + images extraites</span>
+            </button>
+
+            {/* 5. Copy to Clipboard */}
+            <button
+              onClick={handleCopyCode}
+              className="flex flex-col items-center justify-center p-3.5 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-emerald-500/60 rounded-xl transition-all text-center group"
+            >
+              <div className="w-9 h-9 rounded-lg bg-emerald-950/80 text-emerald-400 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              </div>
+              <span className="text-xs font-bold text-white mb-0.5">
+                {copied ? 'Copié !' : 'Copier le Code'}
+              </span>
+              <span className="text-[10px] text-neutral-400">Presse-papiers direct</span>
+            </button>
+
+            {/* 6. Export PNG */}
             <button
               onClick={handleExportPng}
               disabled={isExportingPng}
-              className="flex flex-col items-center justify-center p-4 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-sky-500/60 rounded-xl transition-all text-center group disabled:opacity-40"
+              className="flex flex-col items-center justify-center p-3.5 bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-sky-500/60 rounded-xl transition-all text-center group disabled:opacity-40"
             >
-              <div className="w-10 h-10 rounded-lg bg-sky-950/80 text-sky-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                <ImageIcon className="w-5 h-5" />
+              <div className="w-9 h-9 rounded-lg bg-sky-950/80 text-sky-400 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                <ImageIcon className="w-4 h-4" />
               </div>
               <span className="text-xs font-bold text-white mb-0.5">
-                {isExportingPng ? 'Capture HD...' : 'Télécharger Capture PNG'}
+                {isExportingPng ? 'Capture HD...' : 'Capture Image .PNG'}
               </span>
               <span className="text-[10px] text-neutral-400">Rendu haute résolution</span>
             </button>

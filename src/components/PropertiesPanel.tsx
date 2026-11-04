@@ -27,6 +27,8 @@ interface PropertiesPanelProps {
   onDuplicate: () => void;
   onDelete: () => void;
   onToggleLock: () => void;
+  isAspectRatioLocked?: boolean;
+  onToggleAspectRatio?: () => void;
 }
 
 const EMAIL_SAFE_FONTS = [
@@ -48,6 +50,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onDuplicate,
   onDelete,
   onToggleLock,
+  isAspectRatioLocked = true,
+  onToggleAspectRatio,
 }) => {
   if (!selectedElement) {
     return (
@@ -143,6 +147,40 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             <div className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider flex items-center justify-between">
               <span>Propriétés de l'image</span>
               <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
+            </div>
+
+            {/* Mode Redimensionnement (Proportions vs Libre) */}
+            <div>
+              <label className="block text-[10px] text-neutral-400 mb-1">Mode de redimensionnement</label>
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-neutral-900 rounded-lg border border-neutral-800">
+                <button
+                  type="button"
+                  onClick={onToggleAspectRatio}
+                  className={`py-1 px-2 text-[11px] font-medium rounded transition-all text-center ${
+                    isAspectRatioLocked
+                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-semibold shadow-xs'
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  🔒 Proportions
+                </button>
+                <button
+                  type="button"
+                  onClick={onToggleAspectRatio}
+                  className={`py-1 px-2 text-[11px] font-medium rounded transition-all text-center ${
+                    !isAspectRatioLocked
+                      ? 'bg-amber-950 text-amber-300 border border-amber-700/60 font-semibold shadow-xs'
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  🔓 Libre
+                </button>
+              </div>
+              <p className="text-[10px] text-neutral-500 mt-1">
+                {isAspectRatioLocked
+                  ? '✓ Ratio d\'origine préservé (recommandé pour logos et signatures)'
+                  : '⚠ Attention : le redimensionnement libre peut déformer l\'image'}
+              </p>
             </div>
 
             <div>

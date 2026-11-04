@@ -13,7 +13,17 @@ import {
   Lock, 
   Unlock,
   Move,
-  CornerDownRight
+  CornerDownRight,
+  X,
+  Plus,
+  Edit3,
+  Check,
+  Sparkles,
+  Image as ImageIcon,
+  MousePointerClick,
+  Heading1,
+  AlignLeft,
+  Minus
 } from 'lucide-react';
 import { DeviceViewport, SelectedElementInfo, AlignmentGuide } from '../types/editor';
 
@@ -26,6 +36,11 @@ interface VisualCanvasProps {
   onDeleteElement: (id: string) => void;
   onToggleLock: (id: string) => void;
   onUpdateElementStyle: (id: string, newStyles: Partial<SelectedElementInfo['styles']>) => void;
+  isAspectRatioLocked?: boolean;
+  onToggleAspectRatio?: () => void;
+  onGroupElements?: (ids: string[]) => void;
+  onInsertElementAtPosition?: (elementType: string, targetId: string, position: 'before' | 'after') => void;
+  onResetDocument?: () => void;
 }
 
 export const VisualCanvas: React.FC<VisualCanvasProps> = ({
@@ -37,6 +52,11 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
   onDeleteElement,
   onToggleLock,
   onUpdateElementStyle,
+  isAspectRatioLocked = true,
+  onToggleAspectRatio,
+  onGroupElements,
+  onInsertElementAtPosition,
+  onResetDocument,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,6 +66,10 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
   const [showGrid, setShowGrid] = useState<boolean>(false);
   const [snapEnabled, setSnapEnabled] = useState<boolean>(true);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
+  const [aspectRatioLocked, setAspectRatioLocked] = useState<boolean>(isAspectRatioLocked);
+
+  // Multi-selection state
+  const [multiSelectedIds, setMultiSelectedIds] = useState<string[]>([]);
 
   // Gizmo overlay positioning state relative to the iframe
   const [gizmoRect, setGizmoRect] = useState<{
@@ -57,6 +81,9 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isResizing, setIsResizing] = useState<string | null>(null);
+  const [isInlineEditing, setIsInlineEditing] = useState<boolean>(false);
+  const [showInsertMenu, setShowInsertMenu] = useState<boolean>(false);
+  const [insertPosition, setInsertPosition] = useState<'before' | 'after'>('after');
   const dragStartPos = useRef<{ x: number; y: number; originalLeft: number; originalTop: number; originalWidth: number; originalHeight: number }>({
     x: 0,
     y: 0,
@@ -65,6 +92,73 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
     originalWidth: 0,
     originalHeight: 0,
   });
+
+  // Reference targets for smart alignment guides during drag and resize
+  const snapTargetsRef = useRef<{
+    containerCenterX: number;
+    containerLeft: number;
+    containerRight: number;
+    candidates: Array<{
+      id: string;
+      screenLeft: number;
+      screenTop: number;
+      screenWidth: number;
+      screenHeight: number;
+      screenRight: number;
+      screenBottom: number;
+      screenCenterX: number;
+      screenCenterY: number;
+      rawWidth: number;
+      rawHeight: number;
+    }>;
+    initialScreenLeft: number;
+    initialScreenTop: number;
+    initialScreenWidth: number;
+    initialScreenHeight: number;
+  }>({
+    containerCenterX: 0,
+    containerLeft: 0,
+    containerRight: 0,
+    candidates: [],
+    initialScreenLeft: 0,
+    initialScreenTop: 0,
+    initialScreenWidth: 0,
+    initialScreenHeight: 0,
+  });
+
+  // Activate inline text editing on chosen element
+  const activateInlineEdit = useCallback((id: string) => {
+    const iframe = iframeRef.current;
+    const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+    if (!iframeDoc) return;
+
+    const target = iframeDoc.querySelector(`[data-cs-id="${id}"]`) as HTMLElement;
+    if (target && target.tagName.toLowerCase() !== 'img') {
+      setIsInlineEditing(true);
+      target.contentEditable = 'true';
+      target.classList.add('cs-editable-active');
+      target.focus();
+
+      const onBlur = () => {
+        target.contentEditable = 'false';
+        target.classList.remove('cs-editable-active');
+        setIsInlineEditing(false);
+        target.removeEventListener('blur', onBlur);
+
+        const helperStyle = iframeDoc.getElementById('courrier-studio-helper-styles');
+        if (helperStyle) helperStyle.remove();
+        const cleanHtml = iframeDoc.documentElement.outerHTML;
+        onHtmlChange(cleanHtml);
+      };
+
+      target.addEventListener('blur', onBlur);
+      target.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          target.blur();
+        }
+      });
+    }
+  }, [onHtmlChange]);
 
   // Determine viewport width
   const getViewportWidth = (): string => {
@@ -181,7 +275,13 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
   const attachIframeListeners = (iframeDoc: Document) => {
     // Click selection listener
     iframeDoc.body.addEventListener('click', (e) => {
-      const target = (e.target as HTMLElement).closest('[data-cs-id]') as HTMLElement;
+      let target = (e.target as HTMLElement).closest('[data-cs-id]') as HTMLElement;
+      if (!target && e.target && e.target !== iframeDoc.body && e.target !== iframeDoc.documentElement) {
+        const rawEl = e.target as HTMLElement;
+        rawEl.setAttribute('data-cs-id', `cs-el-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`);
+        target = rawEl;
+      }
+
       if (target) {
         e.preventDefault();
         e.stopPropagation();
@@ -250,28 +350,118 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
       }
     });
 
-    // Double-click for inline text editing directly in canvas!
+    // Double-click for direct inline text editing in canvas
     iframeDoc.body.addEventListener('dblclick', (e) => {
       const target = (e.target as HTMLElement).closest('[data-cs-id]') as HTMLElement;
       if (target && target.tagName.toLowerCase() !== 'img') {
-        target.contentEditable = 'true';
-        target.classList.add('cs-editable-active');
-        target.focus();
+        const id = target.getAttribute('data-cs-id');
+        if (id) activateInlineEdit(id);
+      }
+    });
 
-        const onBlur = () => {
-          target.contentEditable = 'false';
-          target.classList.remove('cs-editable-active');
-          target.removeEventListener('blur', onBlur);
+    // Drag-over and drop support for dragging elements from sidebar
+    iframeDoc.body.addEventListener('dragover', (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    });
 
-          // Serialize changes back to HTML!
-          const newHtml = iframeDoc.documentElement.outerHTML.replace(/<style id="courrier-studio-helper-styles">[\s\S]*?<\/style>/, '');
-          onHtmlChange(newHtml);
-        };
+    iframeDoc.body.addEventListener('drop', (e: DragEvent) => {
+      e.preventDefault();
+      const elementType = e.dataTransfer?.getData('application/courrier-element');
+      if (!elementType) return;
 
-        target.addEventListener('blur', onBlur);
+      const target = (e.target as HTMLElement).closest('[data-cs-id]') as HTMLElement;
+      const targetId = target?.getAttribute('data-cs-id') || selectedElement?.id || '';
+
+      if (targetId && onInsertElementAtPosition) {
+        onInsertElementAtPosition(elementType, targetId, 'after');
       }
     });
   };
+
+  // Populate snap reference targets for smart alignment guides
+  const populateSnapTargets = useCallback(() => {
+    const iframe = iframeRef.current;
+    const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+    const iframeRect = iframe?.getBoundingClientRect();
+
+    if (!iframe || !iframeDoc || !iframeRect || !selectedElement) return;
+
+    const scale = zoom / 100;
+    const el = iframeDoc.querySelector(`[data-cs-id="${selectedElement.id}"]`) as HTMLElement;
+    if (!el) return;
+
+    const elRect = el.getBoundingClientRect();
+    const initialScreenLeft = iframeRect.left + elRect.left * scale;
+    const initialScreenTop = iframeRect.top + elRect.top * scale;
+    const initialScreenWidth = elRect.width * scale;
+    const initialScreenHeight = elRect.height * scale;
+
+    // Find main email table or container
+    const mainTable = iframeDoc.querySelector('table[style*="max-width"]') 
+      || iframeDoc.querySelector('center > table') 
+      || iframeDoc.querySelector('table[width="100%"]') 
+      || iframeDoc.body;
+    const tableRect = mainTable.getBoundingClientRect();
+    const containerLeft = iframeRect.left + tableRect.left * scale;
+    const containerWidth = tableRect.width * scale;
+    const containerRight = containerLeft + containerWidth;
+    const containerCenterX = containerLeft + containerWidth / 2;
+
+    const candidates: Array<{
+      id: string;
+      screenLeft: number;
+      screenTop: number;
+      screenWidth: number;
+      screenHeight: number;
+      screenRight: number;
+      screenBottom: number;
+      screenCenterX: number;
+      screenCenterY: number;
+      rawWidth: number;
+      rawHeight: number;
+    }> = [];
+
+    iframeDoc.querySelectorAll('[data-cs-id]').forEach((node) => {
+      const htmlNode = node as HTMLElement;
+      const id = htmlNode.getAttribute('data-cs-id') || '';
+      if (id && id !== selectedElement.id && !el.contains(htmlNode) && !htmlNode.contains(el)) {
+        const r = htmlNode.getBoundingClientRect();
+        if (r.width > 15 && r.height > 10) {
+          const sLeft = iframeRect.left + r.left * scale;
+          const sTop = iframeRect.top + r.top * scale;
+          const sWidth = r.width * scale;
+          const sHeight = r.height * scale;
+          candidates.push({
+            id,
+            screenLeft: sLeft,
+            screenTop: sTop,
+            screenWidth: sWidth,
+            screenHeight: sHeight,
+            screenRight: sLeft + sWidth,
+            screenBottom: sTop + sHeight,
+            screenCenterX: sLeft + sWidth / 2,
+            screenCenterY: sTop + sHeight / 2,
+            rawWidth: Math.round(r.width),
+            rawHeight: Math.round(r.height),
+          });
+        }
+      }
+    });
+
+    snapTargetsRef.current = {
+      containerCenterX,
+      containerLeft,
+      containerRight,
+      candidates,
+      initialScreenLeft,
+      initialScreenTop,
+      initialScreenWidth,
+      initialScreenHeight,
+    };
+  }, [selectedElement, zoom]);
 
   // Drag-and-drop movement handler
   const handleDragStart = (e: React.MouseEvent) => {
@@ -279,7 +469,9 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
+    populateSnapTargets();
     setIsDragging(true);
+
     dragStartPos.current = {
       x: e.clientX,
       y: e.clientY,
@@ -296,7 +488,9 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
+    populateSnapTargets();
     setIsResizing(handle);
+
     dragStartPos.current = {
       x: e.clientX,
       y: e.clientY,
@@ -317,26 +511,192 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
       const dy = (e.clientY - dragStartPos.current.y) / scale;
 
       if (isDragging) {
-        // Free movement: calculate new margins or transform
-        const newLeft = Math.round(dragStartPos.current.originalLeft + dx);
-        const newTop = Math.round(dragStartPos.current.originalTop + dy);
+        const {
+          containerCenterX,
+          containerLeft,
+          containerRight,
+          candidates,
+          initialScreenLeft,
+          initialScreenTop,
+          initialScreenWidth,
+          initialScreenHeight,
+        } = snapTargetsRef.current;
 
-        // Alignment guides: snap to center if near 0
+        // Current dragged screen positions
+        let curScreenLeft = initialScreenLeft + dx * scale;
+        let curScreenTop = initialScreenTop + dy * scale;
+        let curScreenCenterX = curScreenLeft + initialScreenWidth / 2;
+        let curScreenRight = curScreenLeft + initialScreenWidth;
+        let curScreenCenterY = curScreenTop + initialScreenHeight / 2;
+        let curScreenBottom = curScreenTop + initialScreenHeight;
+
         const guides: AlignmentGuide[] = [];
-        let finalLeft = newLeft;
-        if (snapEnabled && Math.abs(newLeft) < 15) {
-          finalLeft = 0;
-          guides.push({ type: 'vertical', position: window.innerWidth / 2, label: 'Centre' });
+        const snapThreshold = 8; // Screen pixels tolerance
+        let snappedDx = dx;
+        let snappedDy = dy;
+
+        // 1. Horizontal / X Alignment Checking
+        let snappedX = false;
+
+        // A. Check Email Container Center (highest priority)
+        if (Math.abs(curScreenCenterX - containerCenterX) <= snapThreshold) {
+          if (snapEnabled) {
+            const shift = containerCenterX - curScreenCenterX;
+            snappedDx += shift / scale;
+            curScreenCenterX = containerCenterX;
+            curScreenLeft += shift;
+            curScreenRight += shift;
+          }
+          guides.push({
+            type: 'vertical',
+            position: Math.round(containerCenterX),
+            label: "Centre de l'email",
+          });
+          snappedX = true;
         }
+
+        // B. Check Email Container Left Margin
+        if (!snappedX && Math.abs(curScreenLeft - containerLeft) <= snapThreshold) {
+          if (snapEnabled) {
+            const shift = containerLeft - curScreenLeft;
+            snappedDx += shift / scale;
+            curScreenLeft = containerLeft;
+            curScreenRight += shift;
+            curScreenCenterX += shift;
+          }
+          guides.push({
+            type: 'vertical',
+            position: Math.round(containerLeft),
+            label: 'Bord gauche email',
+          });
+          snappedX = true;
+        }
+
+        // C. Check Email Container Right Margin
+        if (!snappedX && Math.abs(curScreenRight - containerRight) <= snapThreshold) {
+          if (snapEnabled) {
+            const shift = containerRight - curScreenRight;
+            snappedDx += shift / scale;
+            curScreenRight = containerRight;
+            curScreenLeft += shift;
+            curScreenCenterX += shift;
+          }
+          guides.push({
+            type: 'vertical',
+            position: Math.round(containerRight),
+            label: 'Bord droit email',
+          });
+          snappedX = true;
+        }
+
+        // D. Check Sibling Elements X Alignment
+        if (!snappedX) {
+          for (const cand of candidates) {
+            if (Math.abs(curScreenCenterX - cand.screenCenterX) <= snapThreshold) {
+              if (snapEnabled) {
+                const shift = cand.screenCenterX - curScreenCenterX;
+                snappedDx += shift / scale;
+                curScreenCenterX = cand.screenCenterX;
+                curScreenLeft += shift;
+                curScreenRight += shift;
+              }
+              guides.push({
+                type: 'vertical',
+                position: Math.round(cand.screenCenterX),
+                label: 'Aligné au centre',
+              });
+              snappedX = true;
+              break;
+            }
+            if (Math.abs(curScreenLeft - cand.screenLeft) <= snapThreshold) {
+              if (snapEnabled) {
+                const shift = cand.screenLeft - curScreenLeft;
+                snappedDx += shift / scale;
+                curScreenLeft = cand.screenLeft;
+                curScreenRight += shift;
+                curScreenCenterX += shift;
+              }
+              guides.push({
+                type: 'vertical',
+                position: Math.round(cand.screenLeft),
+                label: 'Aligné à gauche',
+              });
+              snappedX = true;
+              break;
+            }
+            if (Math.abs(curScreenRight - cand.screenRight) <= snapThreshold) {
+              if (snapEnabled) {
+                const shift = cand.screenRight - curScreenRight;
+                snappedDx += shift / scale;
+                curScreenRight = cand.screenRight;
+                curScreenLeft += shift;
+                curScreenCenterX += shift;
+              }
+              guides.push({
+                type: 'vertical',
+                position: Math.round(cand.screenRight),
+                label: 'Aligné à droite',
+              });
+              snappedX = true;
+              break;
+            }
+          }
+        }
+
+        // 2. Vertical / Y Alignment Checking
+        for (const cand of candidates) {
+          if (Math.abs(curScreenTop - cand.screenTop) <= snapThreshold) {
+            if (snapEnabled) {
+              const shift = cand.screenTop - curScreenTop;
+              snappedDy += shift / scale;
+              curScreenTop = cand.screenTop;
+            }
+            guides.push({
+              type: 'horizontal',
+              position: Math.round(cand.screenTop),
+              label: 'Aligné en haut',
+            });
+            break;
+          }
+          if (Math.abs(curScreenCenterY - cand.screenCenterY) <= snapThreshold) {
+            if (snapEnabled) {
+              const shift = cand.screenCenterY - curScreenCenterY;
+              snappedDy += shift / scale;
+              curScreenCenterY = cand.screenCenterY;
+            }
+            guides.push({
+              type: 'horizontal',
+              position: Math.round(cand.screenCenterY),
+              label: 'Centre vertical',
+            });
+            break;
+          }
+          if (Math.abs(curScreenBottom - cand.screenBottom) <= snapThreshold) {
+            if (snapEnabled) {
+              const shift = cand.screenBottom - curScreenBottom;
+              snappedDy += shift / scale;
+              curScreenBottom = cand.screenBottom;
+            }
+            guides.push({
+              type: 'horizontal',
+              position: Math.round(cand.screenBottom),
+              label: 'Aligné en bas',
+            });
+            break;
+          }
+        }
+
         setAlignmentGuides(guides);
 
-        // Update style directly in iframe for instant 60fps feedback
+        const newLeft = Math.round(dragStartPos.current.originalLeft + snappedDx);
+        const newTop = Math.round(dragStartPos.current.originalTop + snappedDy);
+
         const iframe = iframeRef.current;
         const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
         if (iframeDoc) {
           const el = iframeDoc.querySelector(`[data-cs-id="${selectedElement.id}"]`) as HTMLElement;
           if (el) {
-            el.style.transform = `translate(${finalLeft}px, ${newTop}px)`;
+            el.style.transform = `translate(${newLeft}px, ${newTop}px)`;
             updateGizmoRect();
           }
         }
@@ -344,7 +704,6 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
         let newWidth = dragStartPos.current.originalWidth;
         let newHeight = dragStartPos.current.originalHeight;
 
-        // Aspect ratio lock for images to prevent distortion
         const isImage = selectedElement.tagName === 'img' || selectedElement.type === 'image';
         const aspectRatio = dragStartPos.current.originalWidth / (dragStartPos.current.originalHeight || 1);
 
@@ -353,13 +712,93 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
         if (isResizing.includes('s')) newHeight += dy;
         if (isResizing.includes('n')) newHeight -= dy;
 
-        newWidth = Math.max(30, Math.min(600, Math.round(newWidth)));
+        newWidth = Math.max(30, Math.min(680, Math.round(newWidth)));
 
-        if (isImage) {
+        const guides: AlignmentGuide[] = [];
+        const {
+          containerCenterX,
+          containerLeft,
+          containerRight,
+          candidates,
+          initialScreenLeft,
+        } = snapTargetsRef.current;
+
+        // Snapping and guides during width resize
+        if (isResizing.includes('e') || isResizing.includes('w')) {
+          // Standard full email width (600px)
+          if (Math.abs(newWidth - 600) <= 8) {
+            if (snapEnabled) newWidth = 600;
+            guides.push({
+              type: 'vertical',
+              position: Math.round(containerRight),
+              label: 'Largeur standard email (600px)',
+            });
+          }
+          // Half email width (300px)
+          else if (Math.abs(newWidth - 300) <= 8) {
+            if (snapEnabled) newWidth = 300;
+            guides.push({
+              type: 'vertical',
+              position: Math.round(containerCenterX),
+              label: 'Demi-largeur email (300px)',
+            });
+          }
+          // Sibling matching width
+          else {
+            for (const cand of candidates) {
+              if (Math.abs(newWidth - cand.rawWidth) <= 6) {
+                if (snapEnabled) newWidth = cand.rawWidth;
+                guides.push({
+                  type: 'vertical',
+                  position: Math.round(cand.screenRight),
+                  label: `Même largeur (${cand.rawWidth}px)`,
+                });
+                break;
+              }
+            }
+          }
+
+          // Check if resized right edge reaches container center or borders
+          const curScreenRight = initialScreenLeft + newWidth * scale;
+          if (Math.abs(curScreenRight - containerCenterX) <= 7 && !guides.some((g) => g.label?.includes('Demi-largeur'))) {
+            guides.push({
+              type: 'vertical',
+              position: Math.round(containerCenterX),
+              label: "Bord au centre de l'email",
+            });
+          } else if (Math.abs(curScreenRight - containerRight) <= 7 && !guides.some((g) => g.label?.includes('600px'))) {
+            guides.push({
+              type: 'vertical',
+              position: Math.round(containerRight),
+              label: "Bord droit de l'email",
+            });
+          }
+        }
+
+        // Snapping and guides during height resize
+        if (isResizing.includes('s') || isResizing.includes('n')) {
+          if (!isImage || !aspectRatioLocked) {
+            for (const cand of candidates) {
+              if (Math.abs(newHeight - cand.rawHeight) <= 6) {
+                if (snapEnabled) newHeight = cand.rawHeight;
+                guides.push({
+                  type: 'horizontal',
+                  position: Math.round(cand.screenBottom),
+                  label: `Même hauteur (${cand.rawHeight}px)`,
+                });
+                break;
+              }
+            }
+          }
+        }
+
+        if (isImage && aspectRatioLocked) {
           newHeight = Math.round(newWidth / aspectRatio);
         } else {
           newHeight = Math.max(20, Math.round(newHeight));
         }
+
+        setAlignmentGuides(guides);
 
         const iframe = iframeRef.current;
         const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
@@ -405,7 +844,7 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, isResizing, selectedElement, zoom, snapEnabled, onHtmlChange, updateGizmoRect]);
+  }, [isDragging, isResizing, selectedElement, zoom, snapEnabled, aspectRatioLocked, onHtmlChange, updateGizmoRect]);
 
   return (
     <div className="flex-1 flex flex-col bg-neutral-950 relative overflow-hidden select-none" ref={containerRef}>
@@ -496,6 +935,18 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
+
+          {/* Red X button to clear current document and import another */}
+          {onResetDocument && (
+            <button
+              onClick={onResetDocument}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-red-950/80 hover:bg-red-600 text-red-300 hover:text-white border border-red-800/80 rounded-lg text-xs font-semibold shadow-xs transition-all ml-2"
+              title="Supprimer ce document et en importer un autre"
+            >
+              <X className="w-3.5 h-3.5 text-red-400 group-hover:text-white" />
+              <span>Effacer document (X)</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -523,16 +974,16 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
           />
         </div>
 
-        {/* Smart Alignment Guides */}
+        {/* Smart Alignment Guides (Figma & Canva style) */}
         {alignmentGuides.map((guide, idx) => (
           <div
-            key={idx}
-            className="absolute pointer-events-none z-30 bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.8)]"
+            key={`${guide.type}-${guide.position}-${idx}`}
+            className="fixed pointer-events-none z-50 transition-opacity duration-100"
             style={
               guide.type === 'vertical'
                 ? {
-                    top: 0,
-                    bottom: 0,
+                    top: '40px',
+                    bottom: '28px',
                     left: `${guide.position}px`,
                     width: '1px',
                   }
@@ -544,10 +995,26 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
                   }
             }
           >
+            {/* Guide line with neon glow */}
+            <div
+              className={`w-full h-full ${
+                guide.type === 'vertical'
+                  ? 'border-l-2 border-dashed border-pink-500 shadow-[0_0_12px_rgba(236,72,153,0.95)]'
+                  : 'border-t-2 border-dashed border-pink-500 shadow-[0_0_12px_rgba(236,72,153,0.95)]'
+              }`}
+            />
+            {/* Elegant alignment badge */}
             {guide.label && (
-              <span className="absolute top-2 left-2 bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
-                {guide.label}
-              </span>
+              <div
+                className={`absolute pointer-events-none px-2.5 py-0.5 bg-pink-600/95 backdrop-blur-xs text-white text-[10px] font-bold font-sans rounded-full shadow-xl border border-pink-300/50 flex items-center gap-1.5 whitespace-nowrap animate-in fade-in duration-100 ${
+                  guide.type === 'vertical'
+                    ? 'top-2 -translate-x-1/2'
+                    : 'left-6 -translate-y-1/2'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                <span>{guide.label}</span>
+              </div>
             )}
           </div>
         ))}
@@ -563,13 +1030,13 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
               height: `${gizmoRect.height}px`,
             }}
           >
-            {/* Outline Box */}
-            <div className={`w-full h-full border-2 border-indigo-500 rounded-sm pointer-events-auto relative ${
+            {/* Outline Box - pointer-events-none to let clicks reach the document below */}
+            <div className={`w-full h-full border-2 border-indigo-500 rounded-sm pointer-events-none relative ${
               selectedElement.isLocked ? 'border-amber-500' : ''
             }`}>
               {/* Floating Quick Action Mini-Toolbar */}
               <div 
-                className="absolute -top-9 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-neutral-900 border border-neutral-700/80 rounded-lg p-1 shadow-xl text-neutral-200 z-50 pointer-events-auto"
+                className="absolute -top-9 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-neutral-900 border border-neutral-700/80 rounded-lg p-1 shadow-xl text-neutral-200 z-50 pointer-events-auto whitespace-nowrap"
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* Drag handle */}
@@ -583,12 +1050,176 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
 
                 <div className="w-[1px] h-3.5 bg-neutral-800 my-auto" />
 
-                {/* Tag and dimension indicator */}
+                {/* Tag indicator */}
                 <span className="text-[10px] font-mono font-medium px-1 text-neutral-300">
-                  {selectedElement.tagName} &bull; {Math.round(gizmoRect.width)}&times;{Math.round(gizmoRect.height)}
+                  {selectedElement.tagName}
                 </span>
 
                 <div className="w-[1px] h-3.5 bg-neutral-800 my-auto" />
+
+                {/* Direct Inline Text Edit / Validate Button */}
+                {selectedElement.tagName !== 'img' && selectedElement.type !== 'image' && (
+                  <>
+                    {isInlineEditing ? (
+                      <button
+                        onClick={() => {
+                          const iframe = iframeRef.current;
+                          const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+                          const target = iframeDoc?.querySelector(`[data-cs-id="${selectedElement.id}"]`) as HTMLElement;
+                          if (target) target.blur();
+                        }}
+                        className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow-xs transition-colors"
+                        title="Valider la modification du texte"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>Valider</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => activateInlineEdit(selectedElement.id)}
+                        className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-bold flex items-center gap-1 shadow-xs transition-colors"
+                        title="Éditer le texte directement dans l'interface"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                        <span>Éditer texte</span>
+                      </button>
+                    )}
+                    <div className="w-[1px] h-3.5 bg-neutral-800 my-auto" />
+                  </>
+                )}
+
+                {/* In-canvas "+ Insérer" Menu Button */}
+                {onInsertElementAtPosition && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowInsertMenu(!showInsertMenu)}
+                      className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded text-[10px] font-semibold flex items-center gap-1 transition-colors"
+                      title="Insérer un élément à cet endroit précis sur le document"
+                    >
+                      <Plus className="w-3 h-3 text-indigo-400" />
+                      <span>+ Insérer</span>
+                    </button>
+
+                    {showInsertMenu && (
+                      <div 
+                        className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl p-1.5 z-50 text-xs text-neutral-200 space-y-1"
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
+                        <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider px-2 py-0.5">
+                          Position d'insertion :
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 p-1 bg-neutral-950 rounded border border-neutral-800">
+                          <button
+                            onClick={() => setInsertPosition('before')}
+                            className={`py-0.5 rounded text-[10px] font-bold transition-colors ${
+                              insertPosition === 'before' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            &uarr; Avant
+                          </button>
+                          <button
+                            onClick={() => setInsertPosition('after')}
+                            className={`py-0.5 rounded text-[10px] font-bold transition-colors ${
+                              insertPosition === 'after' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            &darr; Après
+                          </button>
+                        </div>
+                        <div className="h-[1px] bg-neutral-800 my-1" />
+                        <button
+                          onClick={() => {
+                            onInsertElementAtPosition('logo', selectedElement.id, insertPosition);
+                            setShowInsertMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Logo de marque</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            onInsertElementAtPosition('image', selectedElement.id, insertPosition);
+                            setShowInsertMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                        >
+                          <ImageIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span>Image / Bannière</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            onInsertElementAtPosition('button', selectedElement.id, insertPosition);
+                            setShowInsertMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                        >
+                          <MousePointerClick className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                          <span>Bouton d'Action</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            onInsertElementAtPosition('heading-1', selectedElement.id, insertPosition);
+                            setShowInsertMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                        >
+                          <Heading1 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span>Grand Titre H1</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            onInsertElementAtPosition('paragraph', selectedElement.id, insertPosition);
+                            setShowInsertMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                        >
+                          <AlignLeft className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                          <span>Paragraphe</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            onInsertElementAtPosition('divider', selectedElement.id, insertPosition);
+                            setShowInsertMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1 hover:bg-neutral-800 rounded text-left transition-colors text-[11px]"
+                        >
+                          <Minus className="w-3.5 h-3.5 text-neutral-500 shrink-0" />
+                          <span>Séparateur</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="w-[1px] h-3.5 bg-neutral-800 my-auto" />
+
+                {/* Image Aspect Ratio Mode Indicator & Toggle */}
+                {(selectedElement.tagName === 'img' || selectedElement.type === 'image') && (
+                  <>
+                    <button
+                      onClick={() => {
+                        const next = !aspectRatioLocked;
+                        setAspectRatioLocked(next);
+                        onToggleAspectRatio?.();
+                      }}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors ${
+                        aspectRatioLocked
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          : 'bg-amber-950 text-amber-400 border border-amber-800'
+                      }`}
+                      title={
+                        aspectRatioLocked
+                          ? 'Mode : Proportions conservées (cliquez pour passer en redimensionnement libre)'
+                          : 'Mode : Redimensionnement libre (cliquez pour verrouiller le ratio)'
+                      }
+                    >
+                      {aspectRatioLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+                      <span>{aspectRatioLocked ? 'Ratio fixé' : 'Libre'}</span>
+                    </button>
+                    <div className="w-[1px] h-3.5 bg-neutral-800 my-auto" />
+                  </>
+                )}
 
                 {/* Duplicate */}
                 <button
@@ -622,48 +1253,48 @@ export const VisualCanvas: React.FC<VisualCanvasProps> = ({
                 </button>
               </div>
 
-              {/* 8 Bounding Box Resize Handles (only if not locked) */}
+              {/* 8 Bounding Box Resize Handles (pointer-events-auto) */}
               {!selectedElement.isLocked && (
                 <>
                   {/* NW */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 'nw')}
-                    className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nwse-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto -top-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nwse-resize shadow-md hover:scale-125 transition-transform"
                   />
                   {/* N */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 'n')}
-                    className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ns-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ns-resize shadow-md hover:scale-125 transition-transform"
                   />
                   {/* NE */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 'ne')}
-                    className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nesw-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto -top-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nesw-resize shadow-md hover:scale-125 transition-transform"
                   />
                   {/* E */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 'e')}
-                    className="absolute top-1/2 -translate-y-1/2 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ew-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto top-1/2 -translate-y-1/2 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ew-resize shadow-md hover:scale-125 transition-transform"
                   />
                   {/* SE */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 'se')}
-                    className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nwse-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto -bottom-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nwse-resize shadow-md hover:scale-125 transition-transform"
                   />
                   {/* S */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 's')}
-                    className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ns-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ns-resize shadow-md hover:scale-125 transition-transform"
                   />
                   {/* SW */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 'sw')}
-                    className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nesw-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto -bottom-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-nesw-resize shadow-md hover:scale-125 transition-transform"
                   />
                   {/* W */}
                   <div
                     onMouseDown={(e) => handleResizeStart(e, 'w')}
-                    className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ew-resize shadow-md hover:scale-125 transition-transform"
+                    className="absolute pointer-events-auto top-1/2 -translate-y-1/2 -left-1.5 w-3 h-3 bg-white border-2 border-indigo-600 rounded-sm cursor-ew-resize shadow-md hover:scale-125 transition-transform"
                   />
                 </>
               )}

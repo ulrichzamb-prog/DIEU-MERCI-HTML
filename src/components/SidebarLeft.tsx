@@ -118,24 +118,33 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
+                draggable={true}
+                onDragStart={(e) => e.dataTransfer.setData('application/courrier-element', 'heading-1')}
                 onClick={() => onInsertElement('heading-1')}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group"
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group cursor-grab active:cursor-grabbing"
+                title="Glissez sur le document ou cliquez pour insérer"
               >
                 <Heading1 className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
                 <span className="text-xs font-medium text-neutral-200">Grand Titre H1</span>
               </button>
 
               <button
+                draggable={true}
+                onDragStart={(e) => e.dataTransfer.setData('application/courrier-element', 'heading-2')}
                 onClick={() => onInsertElement('heading-2')}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group"
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group cursor-grab active:cursor-grabbing"
+                title="Glissez sur le document ou cliquez pour insérer"
               >
                 <Heading2 className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
                 <span className="text-xs font-medium text-neutral-200">Sous-titre H2</span>
               </button>
 
               <button
+                draggable={true}
+                onDragStart={(e) => e.dataTransfer.setData('application/courrier-element', 'paragraph')}
                 onClick={() => onInsertElement('paragraph')}
-                className="col-span-2 flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group"
+                className="col-span-2 flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group cursor-grab active:cursor-grabbing"
+                title="Glissez sur le document ou cliquez pour insérer"
               >
                 <AlignLeft className="w-4 h-4 text-neutral-400 group-hover:scale-110 transition-transform" />
                 <div className="text-xs font-medium text-neutral-200">Paragraphe de texte</div>
@@ -149,24 +158,44 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
+                draggable={true}
+                onDragStart={(e) => e.dataTransfer.setData('application/courrier-element', 'logo')}
+                onClick={() => onInsertElement('logo')}
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group cursor-grab active:cursor-grabbing"
+                title="Glissez sur le document ou cliquez pour insérer"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+                <div>
+                  <div className="text-xs font-medium text-neutral-200">Logo de Marque</div>
+                  <div className="text-[10px] text-neutral-500">Format compact 200px</div>
+                </div>
+              </button>
+
+              <button
+                draggable={true}
+                onDragStart={(e) => e.dataTransfer.setData('application/courrier-element', 'image')}
+                onClick={() => onInsertElement('image')}
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group cursor-grab active:cursor-grabbing"
+                title="Glissez sur le document ou cliquez pour insérer"
+              >
+                <ImageIcon className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                <div>
+                  <div className="text-xs font-medium text-neutral-200">Image / Bannière</div>
+                  <div className="text-[10px] text-neutral-500">Largeur 560px max</div>
+                </div>
+              </button>
+
+              <button
+                draggable={true}
+                onDragStart={(e) => e.dataTransfer.setData('application/courrier-element', 'button')}
                 onClick={() => onInsertElement('button')}
-                className="col-span-2 flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group"
+                className="col-span-2 flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group cursor-grab active:cursor-grabbing"
+                title="Glissez sur le document ou cliquez pour insérer"
               >
                 <MousePointerClick className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" />
                 <div>
                   <div className="text-xs font-medium text-neutral-200">Bouton d'Action (CTA)</div>
                   <div className="text-[10px] text-neutral-500">Bouton compatible Outlook avec styles inline</div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => onInsertElement('image')}
-                className="col-span-2 flex items-center gap-2 p-2.5 rounded-lg bg-neutral-950/60 hover:bg-neutral-800/80 border border-neutral-800 hover:border-neutral-700 text-left transition-all group"
-              >
-                <ImageIcon className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-                <div>
-                  <div className="text-xs font-medium text-neutral-200">Image / Logo</div>
-                  <div className="text-[10px] text-neutral-500">Proportions préservées et alt tag</div>
                 </div>
               </button>
             </div>

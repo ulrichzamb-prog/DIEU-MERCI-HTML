@@ -14,6 +14,9 @@ import { PreviewPanel } from './components/PreviewPanel';
 import { ImportModal } from './components/modals/ImportModal';
 import { ExportModal } from './components/modals/ExportModal';
 import { TemplatesModal } from './components/modals/TemplatesModal';
+import { PeaceLoveConvertModal } from './components/modals/PeaceLoveConvertModal';
+import { KitExportModal } from './components/modals/KitExportModal';
+import { CloudinaryModal } from './components/modals/CloudinaryModal';
 import { SAMPLE_TEMPLATES } from './data/sampleTemplates';
 import { sanitizeAndTagHtml, categorizeElement, generateElementId } from './utils/htmlSanitizer';
 import { auditEmailHtml, autoFixEmailCompatibility, AuditResult } from './utils/emailCompatibility';
@@ -42,7 +45,14 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
   const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false);
+  const [isPeaceLoveConvertOpen, setIsPeaceLoveConvertOpen] = useState<boolean>(false);
+  const [isKitModalOpen, setIsKitModalOpen] = useState<boolean>(false);
+  const [isCloudinaryOpen, setIsCloudinaryOpen] = useState<boolean>(false);
+  const [isConfirmNewProjectOpen, setIsConfirmNewProjectOpen] = useState<boolean>(false);
   const [isSaved, setIsSaved] = useState<boolean>(true);
+
+  // Aspect ratio lock state for images (proportions conservées vs libre)
+  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState<boolean>(true);
 
   // DOM Layer list extracted from current HTML
   const [domElements, setDomElements] = useState<Array<{ id: string; type: string; tagName: string; text: string; isLocked: boolean }>>([]);
@@ -184,62 +194,61 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo, selectedElement]);
 
-  // Insert an element into the document
-  const handleInsertElement = (elementType: string) => {
-    const newId = generateElementId();
-    let snippet = '';
-
+  // Reusable snippet generator for elements
+  const getElementSnippet = (elementType: string, newId: string): string => {
     switch (elementType) {
-      case 'heading-1':
-        snippet = `<h1 data-cs-id="${newId}" style="font-size: 28px; line-height: 36px; color: #0f172a; margin: 16px 0 10px 0; font-weight: bold; font-family: Arial, sans-serif;">Nouveau Titre Principal</h1>`;
-        break;
-      case 'heading-2':
-        snippet = `<h2 data-cs-id="${newId}" style="font-size: 20px; line-height: 28px; color: #1e293b; margin: 14px 0 8px 0; font-weight: 600; font-family: Arial, sans-serif;">Sous-titre de Section</h2>`;
-        break;
-      case 'paragraph':
-        snippet = `<p data-cs-id="${newId}" style="font-size: 15px; line-height: 24px; color: #475569; margin: 0 0 14px 0; font-family: Arial, sans-serif;">Insérez votre texte ici. Vous pouvez double-cliquer pour éditer ce contenu directement dans le canvas.</p>`;
-        break;
-      case 'button':
-        snippet = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin: 16px 0;"><tr><td align="center" style="border-radius: 6px; background-color: #4f46e5;"><a data-cs-id="${newId}" href="https://example.com" style="background-color: #4f46e5; border: 1px solid #4f46e5; font-family: Arial, sans-serif; font-size: 15px; font-weight: bold; text-decoration: none; padding: 14px 28px; color: #ffffff; border-radius: 6px; display: inline-block;">Cliquez ici &rarr;</a></td></tr></table>`;
-        break;
+      case 'logo':
+        return `<div data-cs-id="${newId}" style="text-align: center; margin: 12px auto 18px auto;"><img data-cs-id="${newId}-img" src="data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20rx%3D%226%22%20fill%3D%22%234f46e5%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2255%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%23ffffff%22%20font-family%3D%22Arial%22%20font-size%3D%2218%22%20font-weight%3D%22bold%22%3EMon%20Logo%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Logo de l'entreprise" width="200" style="width: 200px; max-width: 100%; height: auto; display: inline-block; border-radius: 6px;" /></div>`;
       case 'image':
-        snippet = `<img data-cs-id="${newId}" src="data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22600%22%20height%3D%22300%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23e0e7ff%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%234338ca%22%20font-family%3D%22Arial%22%20font-size%3D%2220%22%3EImage%20ou%20Logo%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Nouvelle image" width="560" style="width: 100%; max-width: 560px; height: auto; border-radius: 6px; display: block; margin: 16px auto;" />`;
-        break;
+        return `<div data-cs-id="${newId}" style="text-align: center; margin: 16px auto;"><img data-cs-id="${newId}-img" src="data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22560%22%20height%3D%22280%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23e0e7ff%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20dominant-baseline%3D%22middle%22%20text-anchor%3D%22middle%22%20fill%3D%22%234338ca%22%20font-family%3D%22Arial%22%20font-size%3D%2220%22%3EImage%20Banni%C3%A8re%20Email%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Bannière visuelle" width="560" style="width: 100%; max-width: 560px; height: auto; border-radius: 8px; display: block; margin: 0 auto; border: 1px solid #e2e8f0;" /></div>`;
+      case 'button':
+        return `<table data-cs-id="${newId}" role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin: 16px auto;"><tr><td align="center" style="border-radius: 6px; background-color: #4f46e5;"><a data-cs-id="${newId}-btn" href="https://example.com" style="background-color: #4f46e5; border: 1px solid #4f46e5; font-family: Arial, sans-serif; font-size: 15px; font-weight: bold; text-decoration: none; padding: 14px 28px; color: #ffffff; border-radius: 6px; display: inline-block;">Cliquez ici &rarr;</a></td></tr></table>`;
+      case 'heading-1':
+        return `<h1 data-cs-id="${newId}" style="font-size: 28px; line-height: 36px; color: #0f172a; margin: 16px 0 10px 0; font-weight: bold; font-family: Arial, sans-serif;">Nouveau Titre Principal</h1>`;
+      case 'heading-2':
+        return `<h2 data-cs-id="${newId}" style="font-size: 20px; line-height: 28px; color: #1e293b; margin: 14px 0 8px 0; font-weight: 600; font-family: Arial, sans-serif;">Sous-titre de Section</h2>`;
+      case 'paragraph':
+        return `<p data-cs-id="${newId}" style="font-size: 15px; line-height: 24px; color: #475569; margin: 0 0 14px 0; font-family: Arial, sans-serif;">Insérez votre texte ici. Vous pouvez double-cliquer pour éditer ce contenu directement dans le canvas.</p>`;
       case 'two-columns':
-        snippet = `<table data-cs-id="${newId}" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 16px 0;"><tr><td width="48%" valign="top" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px;"><h3 style="font-size: 16px; margin: 0 0 6px 0; color: #0f172a; font-family: Arial, sans-serif;">Colonne 1</h3><p style="font-size: 14px; margin: 0; color: #64748b; font-family: Arial, sans-serif;">Contenu de la première colonne.</p></td><td width="4%">&nbsp;</td><td width="48%" valign="top" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px;"><h3 style="font-size: 16px; margin: 0 0 6px 0; color: #0f172a; font-family: Arial, sans-serif;">Colonne 2</h3><p style="font-size: 14px; margin: 0; color: #64748b; font-family: Arial, sans-serif;">Contenu de la seconde colonne.</p></td></tr></table>`;
-        break;
+        return `<table data-cs-id="${newId}" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 16px 0;"><tr><td width="48%" valign="top" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px;"><h3 style="font-size: 16px; margin: 0 0 6px 0; color: #0f172a; font-family: Arial, sans-serif;">Colonne 1</h3><p style="font-size: 14px; margin: 0; color: #64748b; font-family: Arial, sans-serif;">Contenu de la première colonne.</p></td><td width="4%">&nbsp;</td><td width="48%" valign="top" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px;"><h3 style="font-size: 16px; margin: 0 0 6px 0; color: #0f172a; font-family: Arial, sans-serif;">Colonne 2</h3><p style="font-size: 14px; margin: 0; color: #64748b; font-family: Arial, sans-serif;">Contenu de la seconde colonne.</p></td></tr></table>`;
       case 'callout':
-        snippet = `<table data-cs-id="${newId}" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 16px 0; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;"><tr><td style="padding: 18px 24px; font-family: Arial, sans-serif;"><div style="font-size: 14px; font-weight: bold; color: #1e40af; margin-bottom: 4px;">Information importante</div><div style="font-size: 14px; line-height: 22px; color: #1e3a8a;">Ce bloc met en avant un message clé pour vos lecteurs.</div></td></tr></table>`;
-        break;
+        return `<table data-cs-id="${newId}" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 16px 0; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;"><tr><td style="padding: 18px 24px; font-family: Arial, sans-serif;"><div style="font-size: 14px; font-weight: bold; color: #1e40af; margin-bottom: 4px;">Information importante</div><div style="font-size: 14px; line-height: 22px; color: #1e3a8a;">Ce bloc met en avant un message clé pour vos lecteurs.</div></td></tr></table>`;
       case 'divider':
-        snippet = `<hr data-cs-id="${newId}" style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />`;
-        break;
+        return `<hr data-cs-id="${newId}" style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />`;
       case 'spacer':
-        snippet = `<div data-cs-id="${newId}" style="height: 24px; line-height: 24px; font-size: 24px;">&nbsp;</div>`;
-        break;
+        return `<div data-cs-id="${newId}" style="height: 24px; line-height: 24px; font-size: 24px;">&nbsp;</div>`;
       default:
-        return;
+        return '';
     }
+  };
+
+  // Insert element at specific position (before / after specific element ID or at end)
+  const handleInsertElementAtPosition = (elementType: string, targetId?: string, position: 'before' | 'after' = 'after') => {
+    const newId = generateElementId();
+    const snippet = getElementSnippet(elementType, newId);
+    if (!snippet) return;
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(currentHtml, 'text/html');
 
-    // If an element is selected, insert directly after it!
     let inserted = false;
-    if (selectedElement) {
-      const targetEl = doc.querySelector(`[data-cs-id="${selectedElement.id}"]`);
+    if (targetId) {
+      const targetEl = doc.querySelector(`[data-cs-id="${targetId}"]`);
       if (targetEl && targetEl.parentElement) {
         const tempContainer = doc.createElement('div');
         tempContainer.innerHTML = snippet;
         const newEl = tempContainer.firstElementChild;
         if (newEl) {
-          targetEl.parentElement.insertBefore(newEl, targetEl.nextSibling);
+          if (position === 'before') {
+            targetEl.parentElement.insertBefore(newEl, targetEl);
+          } else {
+            targetEl.parentElement.insertBefore(newEl, targetEl.nextSibling);
+          }
           inserted = true;
         }
       }
     }
 
-    // Otherwise, append to main container or body
     if (!inserted) {
       const mainContainer = doc.querySelector('table[style*="max-width"]') || doc.body;
       const tempContainer = doc.createElement('div');
@@ -252,6 +261,11 @@ export default function App() {
 
     const newHtml = doc.documentElement.outerHTML;
     updateHtml(newHtml);
+  };
+
+  // Insert element default handler (uses selection if active)
+  const handleInsertElement = (elementType: string) => {
+    handleInsertElementAtPosition(elementType, selectedElement ? selectedElement.id : undefined, 'after');
   };
 
   // Duplicate an element
@@ -472,6 +486,87 @@ export default function App() {
     updateHtml(fixedHtml);
   };
 
+  // Reset to brand new blank email project
+  const handleResetToNewProject = () => {
+    const blankHtml = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="fr">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nouveau Template</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: Arial, Helvetica, sans-serif; color: #1e293b;">
+  <center style="width: 100%; background-color: #f8fafc; padding: 36px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden;">
+      <tr>
+        <td style="padding: 36px 36px 20px 36px;">
+          <h1 style="font-size: 24px; color: #0f172a; margin: 0 0 12px 0;">Nouveau Message Email</h1>
+          <p style="font-size: 15px; line-height: 24px; color: #475569; margin: 0 0 20px 0;">
+            Commencez à concevoir votre email ou insérez des éléments depuis le panneau latéral gauche.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 20px 36px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8;">
+          <p style="margin: 0;">Courrier Studio &bull; <a href="#" style="color: #6366f1; text-decoration: underline;">Se désabonner</a></p>
+        </td>
+      </tr>
+    </table>
+  </center>
+</body>
+</html>`;
+    const { sanitizedHtml } = sanitizeAndTagHtml(blankHtml);
+    setDocumentTitle('Nouveau Template Email');
+    setMetadata({
+      subject: 'Nouveau Message',
+      preheader: '',
+      senderName: 'Mon Entreprise',
+      senderEmail: 'contact@domaine.fr',
+    });
+    updateHtml(sanitizedHtml);
+    setSelectedElement(null);
+    setIsConfirmNewProjectOpen(false);
+  };
+
+  // Group elements together
+  const handleGroupElements = (ids: string[]) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(currentHtml, 'text/html');
+    const nodes = ids.map((id) => doc.querySelector(`[data-cs-id="${id}"]`)).filter(Boolean) as HTMLElement[];
+
+    if (nodes.length > 1 && nodes[0].parentElement) {
+      const groupWrapper = doc.createElement('div');
+      groupWrapper.setAttribute('data-cs-id', generateElementId('group'));
+      groupWrapper.setAttribute('data-cs-type', 'container');
+      groupWrapper.setAttribute('style', 'margin: 12px 0; padding: 12px; border: 1px dashed #cbd5e1; border-radius: 6px;');
+
+      nodes[0].parentElement.insertBefore(groupWrapper, nodes[0]);
+      nodes.forEach((n) => groupWrapper.appendChild(n));
+
+      const newHtml = doc.documentElement.outerHTML;
+      updateHtml(newHtml);
+    }
+  };
+
+  // Insert OCR recognized text directly into email template
+  const handleInsertOcrTextToEmail = (text: string) => {
+    const newId = generateElementId('ocr');
+    const snippet = `<div data-cs-id="${newId}" style="margin: 16px 0; padding: 16px; background-color: #f8fafc; border-left: 3px solid #f59e0b; border-radius: 0 6px 6px 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #334155;">${text.split('\n\n').map(p => `<p style="margin: 0 0 10px 0;">${p.trim()}</p>`).join('')}</div>`;
+    
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(currentHtml, 'text/html');
+    const container = doc.querySelector('table[style*="max-width"]') || doc.body;
+
+    const temp = doc.createElement('div');
+    temp.innerHTML = snippet;
+    if (temp.firstElementChild) {
+      container.appendChild(temp.firstElementChild);
+    }
+
+    const newHtml = doc.documentElement.outerHTML;
+    updateHtml(newHtml);
+  };
+
   // Import handler
   const handleImportSuccess = (newHtml: string, name: string) => {
     setDocumentTitle(name.replace(/\.[^/.]+$/, ''));
@@ -498,9 +593,13 @@ export default function App() {
         canRedo={historyIndex < history.length - 1}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        onNewProject={() => setIsConfirmNewProjectOpen(true)}
         onOpenImport={() => setIsImportOpen(true)}
         onOpenTemplates={() => setIsTemplatesOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
+        onOpenKitModal={() => setIsKitModalOpen(true)}
+        onOpenPeaceLoveConvert={() => setIsPeaceLoveConvertOpen(true)}
+        onOpenCloudinary={() => setIsCloudinaryOpen(true)}
         isSaved={isSaved}
         documentTitle={documentTitle}
       />
@@ -535,6 +634,11 @@ export default function App() {
               onDeleteElement={handleDeleteElement}
               onToggleLock={handleToggleLock}
               onUpdateElementStyle={(id, styles) => handleUpdateStyle(styles)}
+              isAspectRatioLocked={isAspectRatioLocked}
+              onToggleAspectRatio={() => setIsAspectRatioLocked(!isAspectRatioLocked)}
+              onGroupElements={handleGroupElements}
+              onInsertElementAtPosition={handleInsertElementAtPosition}
+              onResetDocument={() => setIsConfirmNewProjectOpen(true)}
             />
 
             {/* Right Element Properties Panel */}
@@ -546,6 +650,8 @@ export default function App() {
               onDuplicate={() => selectedElement && handleDuplicateElement(selectedElement.id)}
               onDelete={() => selectedElement && handleDeleteElement(selectedElement.id)}
               onToggleLock={() => selectedElement && handleToggleLock(selectedElement.id)}
+              isAspectRatioLocked={isAspectRatioLocked}
+              onToggleAspectRatio={() => setIsAspectRatioLocked(!isAspectRatioLocked)}
             />
           </>
         )}
@@ -563,7 +669,11 @@ export default function App() {
 
         {/* Workspace Mode 3: APERÇU FINAL */}
         {currentMode === 'preview' && (
-          <PreviewPanel html={currentHtml} metadata={metadata} />
+          <PreviewPanel
+            html={currentHtml}
+            metadata={metadata}
+            onOpenExport={() => setIsExportOpen(true)}
+          />
         )}
       </div>
 
@@ -578,6 +688,7 @@ export default function App() {
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         html={currentHtml}
+        metadata={metadata}
         documentTitle={documentTitle}
       />
 
@@ -586,6 +697,54 @@ export default function App() {
         onClose={() => setIsTemplatesOpen(false)}
         onSelectTemplate={handleSelectTemplate}
       />
+
+      <PeaceLoveConvertModal
+        isOpen={isPeaceLoveConvertOpen}
+        onClose={() => setIsPeaceLoveConvertOpen(false)}
+        onInsertOcrTextToEmail={handleInsertOcrTextToEmail}
+        onLoadHtmlToEditor={(html, name) => handleImportSuccess(html, name)}
+      />
+
+      <KitExportModal
+        isOpen={isKitModalOpen}
+        onClose={() => setIsKitModalOpen(false)}
+        html={currentHtml}
+        metadata={metadata}
+        onApplyKitOptimizationsToDocument={(optimized) => updateHtml(optimized)}
+      />
+
+      <CloudinaryModal
+        isOpen={isCloudinaryOpen}
+        onClose={() => setIsCloudinaryOpen(false)}
+        html={currentHtml}
+        onUpdateHtmlImages={(updated) => updateHtml(updated)}
+      />
+
+      {/* Confirmation Modal for New Project */}
+      {isConfirmNewProjectOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 select-none">
+          <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl p-6 space-y-4">
+            <h3 className="text-sm font-bold text-white">Créer un nouveau projet ?</h3>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Vous êtes sur le point de réinitialiser le document actuel. Assurez-vous d'avoir exporté ou sauvegardé vos modifications importantes.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsConfirmNewProjectOpen(false)}
+                className="px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleResetToNewProject}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+              >
+                Réinitialiser & Créer Vierge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

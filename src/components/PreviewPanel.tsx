@@ -10,16 +10,18 @@ import {
   Star, 
   Reply, 
   MoreVertical,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import { DeviceViewport, EmailMetadata } from '../types/editor';
 
 interface PreviewPanelProps {
   html: string;
   metadata: EmailMetadata;
+  onOpenExport?: () => void;
 }
 
-export const PreviewPanel: React.FC<PreviewPanelProps> = ({ html, metadata }) => {
+export const PreviewPanel: React.FC<PreviewPanelProps> = ({ html, metadata, onOpenExport }) => {
   const [viewport, setViewport] = useState<DeviceViewport>('desktop');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [clientType, setClientType] = useState<'gmail' | 'apple' | 'outlook'>('gmail');
@@ -141,6 +143,18 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ html, metadata }) =>
             <Printer className="w-3.5 h-3.5" />
             <span>Imprimer</span>
           </button>
+
+          {/* Export Template Button */}
+          {onOpenExport && (
+            <button
+              onClick={onOpenExport}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-sm transition-all"
+              title="Exporter le template HTML, PDF, DOCX, ZIP"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Exporter le Template</span>
+            </button>
+          )}
         </div>
       </div>
 
